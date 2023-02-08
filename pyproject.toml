@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "mssql-spider"
+version = "0.0.1"
+description = ""
+authors = ["dadevel <dadevel@disroot.org>"]
+license = "MIT"
+packages = [{include = "mssql_spider"}]
+
+[tool.poetry.scripts]
+mssql-spider = "mssql_spider.main:main"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+impacket = {git = "https://github.com/theporgs/impacket.git"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
