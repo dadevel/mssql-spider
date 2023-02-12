@@ -5,7 +5,7 @@ from mssql_spider.client import MSSQLClient
 
 
 def visitor(opts: Namespace, client: MSSQLClient) -> dict[str, Any]:
-    lines = xp_cmdshell(client, opts.xpcmd)
+    lines = xp_cmdshell(client, opts.cmdshell)
     if len(lines) == 0:
         return dict()
     elif len(lines) == 1:

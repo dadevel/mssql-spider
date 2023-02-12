@@ -5,10 +5,10 @@ from mssql_spider.client import MSSQLClient
 
 
 def visitor(opts: Namespace, client: MSSQLClient) -> dict[str, Any]:
-    xp_dirtree(client, opts.xpdir)
+    xp_fileexist(client, opts.fileexist)
     return {}
 
 
-def xp_dirtree(client: MSSQLClient, uncpath: str) -> None:
+def xp_fileexist(client: MSSQLClient, uncpath: str) -> None:
     assert "'" not in uncpath
-    client.query(f"EXEC master.sys.xp_dirtree '{uncpath}',1,1")
+    client.query(f"EXEC master.sys.xp_fileexist '{uncpath}',1,1")

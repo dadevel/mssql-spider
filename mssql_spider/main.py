@@ -10,7 +10,7 @@ import os
 import sys
 
 from mssql_spider.client import MSSQLClient
-from mssql_spider.modules import olecmd, sysinfo, xpcmdshell, xpdirtree
+from mssql_spider.modules import cmdshell, dirtree, fileexist, olecmd, openrowset, regread, sysinfo
 
 HEADER = '\n'.join((
     r'                              __                 _     __',
@@ -50,14 +50,17 @@ def main() -> None:
 
     group = entrypoint.add_argument_group('action')
     #group.add_argument('--whoami', action='store_true')
-    group.add_argument('--sysinfo', action='store_true')
+    group.add_argument('--sysinfo', action='store_true', help='unprivileged')
+    group.add_argument('--regread', nargs=3, metavar=r'HIVE:PATH\KEY', help='privileged')
+    group.add_argument('--openrowset', metavar='UNCPATH', help='privileged')
 
     exgroup = group.add_mutually_exclusive_group()
     #exgroup.add_argument('-q', '--query', metavar='SQL')
-    exgroup.add_argument('-x', '--xpcmd', metavar='COMMAND', help='execute command and return output')
-    exgroup.add_argument('--olecmd', metavar='COMMAND', help='execute command blindly')
+    exgroup.add_argument('-x', '--cmdshell', metavar='COMMAND', help='execute command and return output, privileged')
+    exgroup.add_argument('--olecmd', metavar='COMMAND', help='execute command blindly, privileged')
     #exgroup.add_argument('--rundll', nargs='+', metavar='ASSEMBLY FUNCTION ARGS...')
-    exgroup.add_argument('--xpdir', metavar='UNCPATH')
+    exgroup.add_argument('--dirtree', metavar='UNCPATH', help='unprivileged')
+    exgroup.add_argument('--fileexist', metavar='UNCPATH', help='privileged')
 
     entrypoint.add_argument('targets', nargs='+', metavar='HOST[:PORT]|FILE...')
 
@@ -125,12 +128,18 @@ def _process_target(opts: Namespace, target: tuple[str, int]) -> None:
 def _visitor(opts: Namespace, client: MSSQLClient) -> None:
     if opts.sysinfo:
         _try_visitor(opts, client, sysinfo)
-    if opts.xpcmd:
-        _try_visitor(opts, client, xpcmdshell)
+    if opts.regread:
+        _try_visitor(opts, client, regread)
+    if opts.openrowset:
+        _try_visitor(opts, client, openrowset)
+    if opts.cmdshell:
+        _try_visitor(opts, client, cmdshell)
     if opts.olecmd:
         _try_visitor(opts, client, olecmd)
-    if opts.xpdir:
-        _try_visitor(opts, client, xpdirtree)
+    if opts.dirtree:
+        _try_visitor(opts, client, dirtree)
+    if opts.fileexist:
+        _try_visitor(opts, client, fileexist)
 
 
 def _try_visitor(opts: Namespace, client: MSSQLClient, module) -> None:

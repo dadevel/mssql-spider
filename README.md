@@ -4,19 +4,19 @@
 
 An improved [impacket-mssqclient](https://github.com/fortra/impacket/blob/master/examples/mssqlclient.py) that exploits user impersonation and follows linked instances to discover and compromise as many Microsoft SQL Servers as it can reach.
 
-Big thanks to the developers of fortra/impacket#1397 and [SQLRecon](https://github.com/skahwah/SQLRecon) on which this project is based.
+Big thanks to the developers of fortra/impacket#1397, [SQLRecon](https://github.com/skahwah/SQLRecon) and [PowerUpSQL](https://github.com/NetSPI/PowerUpSQL) on which this project is based.
 
-> **Warning:** Altough this project was successfully tested in the lab and solves the OSEP Challenge Lab 2 automatically, it is still kinda work in progress.
+> **Warning:** Although this project was successfully tested in the lab and solves the OSEP Challenge Lab 2 automatically, it is still kinda work in progress.
 
 # Setup
 
-a) With pipx.
+a) With [pipx](https://github.com/pypa/pipx).
 
 ~~~ bash
 pipx install git+https://github.com/dadevel/mssql-spider.git@main
 ~~~
 
-b) With pip.
+b) With [pip](https://github.com/pypa/pip).
 
 ~~~ bash
 pip install --user git+https://github.com/dadevel/mssql-spider.git@main
