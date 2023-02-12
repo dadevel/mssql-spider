@@ -18,7 +18,7 @@ def xp_cmdshell(client: MSSQLClient, command: str) -> list[str]:
     enabled = xp_cmdshell_enabled(client)
     if not enabled:
         enable_xp_cmdshell(client)
-    rows = client.query(f"exec master..xp_cmdshell '{command}'")
+    rows = client.query(f"EXEC master.dbo.xp_cmdshell '{command}'")
     if not enabled:
         disable_xp_cmdshell(client)
     lines = [row['output'] for row in rows if row['output'] != 'NULL']
@@ -26,14 +26,16 @@ def xp_cmdshell(client: MSSQLClient, command: str) -> list[str]:
 
 
 def xp_cmdshell_enabled(client: MSSQLClient) -> bool:
-    rows = client.query("SELECT CONVERT(INT, ISNULL(value, value_in_use)) as 'value' FROM sys.configurations WHERE name='xp_cmdshell'");
+    rows = client.query("SELECT convert(int, isnull(value, value_in_use)) AS 'value' FROM sys.configurations WHERE name='xp_cmdshell'");
     assert len(rows) == 1
     return bool(rows[0]['value'])
 
 
 def enable_xp_cmdshell(client: MSSQLClient) -> None:
-    client.query("exec master.dbo.sp_configure 'show advanced options',1;RECONFIGURE;exec master.dbo.sp_configure 'xp_cmdshell',1;RECONFIGURE;")
+    client.configure('show advanced options', True)
+    client.configure('xp_cmdshell', True)
 
 
 def disable_xp_cmdshell(client: MSSQLClient) -> None:
-    client.query("exec sp_configure 'xp_cmdshell',0;RECONFIGURE;exec sp_configure 'show advanced options',0;RECONFIGURE;")
+    client.configure('xp_cmdshell', False)
+    client.configure('show advanced options', False)

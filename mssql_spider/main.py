@@ -1,14 +1,28 @@
 from __future__ import annotations
 from argparse import ArgumentParser, Namespace
+from concurrent.futures import ThreadPoolExecutor
 from getpass import getpass
 from typing import Any, Generator
 
+import itertools
 import logging
 import os
 import sys
 
 from mssql_spider.client import MSSQLClient
-from mssql_spider.modules import sysinfo, xpcmdshell, xpdirtree
+from mssql_spider.modules import olecmd, sysinfo, xpcmdshell, xpdirtree
+
+HEADER = '\n'.join((
+    r'                              __                 _     __',
+    r'   ____ ___  ______________ _/ /     _________  (_)___/ /__  _____',
+    r'  / __ `__ \/ ___/ ___/ __ `/ /_____/ ___/ __ \/ / __  / _ \/ ___/',
+    r' / / / / / (__  |__  ) /_/ / /_____(__  ) /_/ / / /_/ /  __/ /',
+    r'/_/ /_/ /_/____/____/\__, /_/     /____/ .___/_/\__,_/\___/_/',
+    r'                       /_/            /_/',
+    r'',
+    r'legend: => linked instance, -> impersonated user, ~> impersonated login',
+    r'',
+))
 
 
 def main() -> None:
@@ -16,8 +30,7 @@ def main() -> None:
 
     entrypoint.add_argument('--depth', type=int, default=10, metavar='UINT', help='default: 10')
     entrypoint.add_argument('--threads', type=int, default=min((os.cpu_count() or 1) * 4, 16), metavar='UINT', help='default: based on CPU cores')
-    # TODO: implement timeout, increase by recursion depth
-    #entrypoint.add_argument('--timeout', type=int, default=60, metavar='SECONDS', help='default: 60')
+    entrypoint.add_argument('--timeout', type=int, default=5, metavar='SECONDS', help='default: 5')
     entrypoint.add_argument('--debug', action='store_true')
 
     group = entrypoint.add_argument_group('authentication')
@@ -41,8 +54,8 @@ def main() -> None:
 
     exgroup = group.add_mutually_exclusive_group()
     #exgroup.add_argument('-q', '--query', metavar='SQL')
-    exgroup.add_argument('-x', '--xpcmd', metavar='COMMAND')
-    exgroup.add_argument('--olecmd', metavar='COMMAND')
+    exgroup.add_argument('-x', '--xpcmd', metavar='COMMAND', help='execute command and return output')
+    exgroup.add_argument('--olecmd', metavar='COMMAND', help='execute command blindly')
     #exgroup.add_argument('--rundll', nargs='+', metavar='ASSEMBLY FUNCTION ARGS...')
     exgroup.add_argument('--xpdir', metavar='UNCPATH')
 
@@ -62,12 +75,11 @@ def main() -> None:
     if opts.aes_key:
         opts.kerberos = True
 
-    # TODO: multi-threading
-    #with ThreadPoolExecutor(max_workers=opts.threads) as pool:
-    #    for (client, line) in pool.map(_process_target, itertools.repeat(opts), _load_targets(opts.targets), itertools.repeat(callback)):
-    #        logging.info(f'{client} {line}')
-    for target  in _load_targets(opts.targets):
-        _process_target(opts, target)
+    logging.info(HEADER)
+
+    with ThreadPoolExecutor(max_workers=opts.threads) as pool:
+        for _ in pool.map(_process_target, itertools.repeat(opts), _load_targets(opts.targets)):
+            continue
 
 
 def _load_targets(targets: list[str]) -> Generator[tuple[str, int], None, None]:
@@ -92,7 +104,7 @@ def _parse_target(value: str) -> tuple[str, int]:
 
 def _process_target(opts: Namespace, target: tuple[str, int]) -> None:
     try:
-        client = MSSQLClient.connect(target[0], target[1])  # TODO: max_depth=opts.depth, debug=opts.debug
+        client = MSSQLClient.connect(target[0], target[1], timeout=opts.timeout)
     except Exception as e:
         logging.error(f'{target[0]}:{target[1]} con {_format_result(dict(error=str(e)))}')
         if opts.debug:
@@ -107,7 +119,7 @@ def _process_target(opts: Namespace, target: tuple[str, int]) -> None:
             logging.exception(e)
         return
 
-    client.spider(lambda c: _visitor(opts, c))
+    client.spider(lambda c: _visitor(opts, c), max_depth=opts.depth)
 
 
 def _visitor(opts: Namespace, client: MSSQLClient) -> None:
@@ -115,6 +127,8 @@ def _visitor(opts: Namespace, client: MSSQLClient) -> None:
         _try_visitor(opts, client, sysinfo)
     if opts.xpcmd:
         _try_visitor(opts, client, xpcmdshell)
+    if opts.olecmd:
+        _try_visitor(opts, client, olecmd)
     if opts.xpdir:
         _try_visitor(opts, client, xpdirtree)
 

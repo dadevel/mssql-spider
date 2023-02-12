@@ -12,6 +12,7 @@ def visitor(_: Namespace, client: MSSQLClient) -> dict[str, Any]:
 
 def sysinfo(client: MSSQLClient) -> dict[str, Any]:
     # docs: https://learn.microsoft.com/en-us/sql/t-sql/functions/serverproperty-transact-sql?view=sql-server-ver16
+    # convert() is needed because impacket does not support the variant type
     rows = client.query(
         "SELECT convert(varchar(max), serverproperty('ComputerNamePhysicalNetBIOS')) AS [hostname],"  # DB01
         "convert(varchar(max), serverproperty('InstanceName')) AS [instance],"  # b'SQLEXPRESS'
@@ -31,7 +32,5 @@ def sysinfo(client: MSSQLClient) -> dict[str, Any]:
 
     row['clustered'] = bool(row['clustered'])
     row['versionstring'] = row['version'].split('\n', maxsplit=1)[0].strip()
-
-    row = {k: v.decode(errors='surrogate-escape') if isinstance(v, bytes) else v for k, v in row.items()}
 
     return row

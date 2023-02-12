@@ -9,8 +9,8 @@ from impacket.tds import MSSQL, SQLErrorException
 
 if TYPE_CHECKING:
     from mssql_spider.linked_instance import LinkedInstance
-    from mssql_spider.impersonated_login import ImpersonatedLogin
     from mssql_spider.impersonated_user import ImpersonatedUser
+
 
 class MSSQLError(RuntimeError):
     pass
@@ -29,6 +29,7 @@ class UserInfo(TypedDict):
 
 
 class ImpersonationInfo(TypedDict):
+    mode: str
     database: str
     grantee: str
     grantor: str
@@ -40,15 +41,10 @@ class InstanceInfo(TypedDict):
     remote_login: str
 
 
-class LinkError(MSSQLError):
-    pass
-
-
 class MSSQLClient:
-    seen = set()
-
-    def __init__(self, connection: MSSQL) -> None:
+    def __init__(self, connection: MSSQL, seen: set[str]|None = None) -> None:
         self.connection = connection
+        self.seen = seen if seen else set()
 
     @classmethod
     def connect(cls, address: str, port: int, timeout: int = 10) -> MSSQLClient:
@@ -76,10 +72,19 @@ class MSSQLClient:
     def disconnect(self) -> None:
         self.connection.disconnect()
 
-    def query(self, statement: str) -> list[dict[str, Any]]:
+    def query(self, statement: str, decode: bool = True) -> list[dict[str, Any]]:
         statement.strip(' ;')
         logging.debug(f'{self.connection.server}:{self.connection.port}:sql:{statement}')
-        rows = self.connection.sql_query(statement)  # sets _connection.replies and returns results
+        # sets _connection.replies and returns results
+        rows: list[dict[str, Any]] = self.connection.sql_query(statement)  # type: ignore
+        if decode:
+            rows = [
+                {
+                    key: value.decode(errors='surrogate-escape') if isinstance(value, bytes) else value
+                    for key, value in row.items()
+                }
+                for row in rows
+            ]
         self.connection.printReplies()  # gets _connection.replies and sets _connection.lastError
         if self.connection.lastError:
             if isinstance(self.connection.lastError, Exception):
@@ -87,14 +92,14 @@ class MSSQLClient:
             else:
                 raise SQLErrorException(self.connection.lastError)
         logging.debug(f'{self.connection.server}:{self.connection.port}:sql:{rows}')
-        return rows  # type: ignore
+        return rows
 
-    def query_database(self, database: str, statement: str) -> list[dict[str, Any]]:
+    def query_database(self, database: str, statement: str, decode: bool = True) -> list[dict[str, Any]]:
         rows = self.query('SELECT db_name() AS [db]')
         assert len(rows) == 1 and len(rows[0]) == 1
         prev = rows[0]['db']
         try:
-            rows = self.query(f'USE {database};{statement};USE {prev}')
+            rows = self.query(f'USE {database};{statement};USE {prev}', decode=decode)
         except SQLErrorException as e:
             if re.search(r'The server principal .+? is not able to access the database .+? under the current security context', e.args[0]):
                 raise SQLPermissionError(e.args[0]) from e
@@ -122,7 +127,7 @@ class MSSQLClient:
         rows = self.query("SELECT system_user AS [login], user_name() AS [user], convert(varchar(max), serverproperty('MachineName')) AS [host]")
         assert len(rows) == 1 and len(rows[0]) == 3
         self._userinfo = dict(
-            host=rows[0]['host'].decode(errors='surrogate-escape').lower(),
+            host=rows[0]['host'].lower(),
             login=rows[0]['login'].lower(),
             user=rows[0]['user'].lower(),
             roles=self.roles(),
@@ -143,12 +148,12 @@ class MSSQLClient:
         return {key for key, value in rows[0].items() if value}
 
     def databases(self) -> set[str]:
-        rows = self.query('select name from sys.databases')
+        rows = self.query('SELECT name FROM sys.databases')
         databases = {row['name'] for row in rows}
         return databases
 
-    def spider(self, visitor: Callable[[MSSQLClient], Any]|None = None, depth: int = 0) -> MSSQLClient:
-        if depth >= 10:
+    def spider(self, visitor: Callable[[MSSQLClient], Any]|None = None, max_depth: int = 10, depth: int = 0) -> MSSQLClient:
+        if depth >= max_depth:
             raise RecursionError('maximum recursion depth exceeded')
 
         if self.id in self.seen:
@@ -161,23 +166,14 @@ class MSSQLClient:
         if visitor:
             visitor(self)
 
-        for login in self.enum_login_impersonation():
+        for login in self.enum_impersonation():
             try:
-                child = self.impersonate_login(login['grantor'], login['database'])
+                child = self.impersonate(login['mode'], login['grantor'])
             except SQLErrorException as e:
                 logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}->{login["grantor"]} not ok')
-                logging.debug(f'{self.connection.server}:{self.connection.port}:could not impersonate login {login["grantor"]} on {self.id}: {e}')
+                logging.debug(f'{self.connection.server}:{self.connection.port}:could not impersonate {login["mode"]} {login["grantor"]} on {self.id}: {e}')
             else:
-                child.spider(visitor, depth=depth + 1)
-
-        for user in self.enum_user_impersonation():
-            try:
-                child = self.impersonate_user(user['grantor'], user['database'])
-            except SQLErrorException as e:
-                logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}~>{user["grantor"]} not ok')
-                logging.debug(f'{self.connection.server}:{self.connection.port}:could not impersonate user {user["grantor"]} on {self.id}: {e}')
-            else:
-                child.spider(visitor, depth=depth + 1)
+                child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
         for link in self.enum_links():
             try:
@@ -186,7 +182,7 @@ class MSSQLClient:
                 logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}=>{link["instance"]} not ok')
                 logging.debug(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {link["instance"]}: {e}')
             else:
-                child.spider(visitor, depth=depth + 1)
+                child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
         return self
 
@@ -200,55 +196,25 @@ class MSSQLClient:
 
     def use_link(self, link: str) -> LinkedInstance:
         from mssql_spider.linked_instance import LinkedInstance
-        client = LinkedInstance(self, link)
+        client = LinkedInstance(self, link, seen=self.seen)
         client.ping()
         return client
 
-    def enum_login_impersonation(self) -> list[ImpersonationInfo]:
+    def enum_impersonation(self) -> list[ImpersonationInfo]:
         results = []
         for database in self.databases():
             try:
-                results += self.query_database(database, "SELECT db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.server_permissions pe JOIN sys.server_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.server_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
+                results += self.query_database(database, "SELECT 'login' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.server_permissions pe JOIN sys.server_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.server_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
+                results += self.query_database(database, f"SELECT 'user' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
             except SQLPermissionError:
                 pass
             except SQLErrorException as e:
                 logging.exception(e)
-        results = [
-            {
-                key: value.decode(errors='surrogate-escape') if isinstance(value, bytes) else value
-                for key, value in row.items()
-            }
-            for row in results
-        ]
         return results  # type: ignore
 
-    def impersonate_login(self, name: str, database: str) -> ImpersonatedLogin:
-        from mssql_spider.impersonated_login import ImpersonatedLogin
-        client = ImpersonatedLogin(self, name, database)
-        client.ping()
-        return client
-
-    def enum_user_impersonation(self) -> list[ImpersonationInfo]:
-        results = []
-        for database in self.databases():
-            try:
-                results += self.query_database(database, f"SELECT db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
-            except SQLPermissionError:
-                pass
-            except SQLErrorException as e:
-                logging.exception(e)
-        results = [
-            {
-                key: value.decode(errors='surrogate-escape') if isinstance(value, bytes) else value
-                for key, value in row.items()
-            }
-            for row in results
-        ]
-        return results  # type: ignore
-
-    def impersonate_user(self, name: str, database: str) -> ImpersonatedUser:
+    def impersonate(self, mode: str, name: str) -> ImpersonatedUser:
         from mssql_spider.impersonated_user import ImpersonatedUser
-        client = ImpersonatedUser(self, name, database)
+        client = ImpersonatedUser(self, name, mode=mode, seen=self.seen)
         client.ping()
         return client
 
@@ -259,3 +225,7 @@ class MSSQLClient:
     @property
     def path(self) -> str:
         return self.id
+
+    def configure(self, option: str, enabled: bool) -> None:
+        value = 1 if enabled else 0
+        self.query(f"EXEC master.dbo.sp_configure [{option}],{value};RECONFIGURE;")

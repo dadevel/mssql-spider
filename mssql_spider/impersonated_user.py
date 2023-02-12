@@ -4,19 +4,21 @@ from mssql_spider.client import MSSQLClient
 
 
 class ImpersonatedUser(MSSQLClient):
-    def __init__(self, parent: MSSQLClient, name: str, database: str) -> None:
-        super().__init__(parent.connection)
+    def __init__(self, parent: MSSQLClient, name: str, mode: str, seen: set[str]) -> None:
+        super().__init__(parent.connection, seen)
+        assert mode in ('login', 'user')
         self.parent = parent
+        self.mode = mode
         self.name = name
-        self.database = database
 
-    def query(self, statement: str) -> list[dict[str, Any]]:
-        statement = f"EXECUTE AS user='{self.name}';{statement};REVERT"
-        return self.parent.query(statement)
+    def query(self, statement: str, decode: bool = True) -> list[dict[str, Any]]:
+        statement = f"EXECUTE AS {self.mode}='{self.name}';{statement};REVERT"
+        return self.parent.query(statement, decode=decode)
 
     def disconnect(self) -> None:
         self.parent.disconnect()
 
     @property
     def path(self) -> str:
-        return f'{self.parent.path}~>{super().path}'
+        symbol = '-' if self.mode == 'login' else '~'
+        return f'{self.parent.path}{symbol}>{super().path}'

@@ -11,4 +11,4 @@ def visitor(opts: Namespace, client: MSSQLClient) -> dict[str, Any]:
 
 def xp_dirtree(client: MSSQLClient, uncpath: str) -> None:
     assert "'" not in uncpath
-    client.query(f"exec master.sys.xp_dirtree '{uncpath}',1,1")
+    client.query(f"EXEC master.sys.xp_dirtree '{uncpath}',1,1")
