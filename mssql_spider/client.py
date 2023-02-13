@@ -169,7 +169,7 @@ class MSSQLClient:
         for login in self.enum_impersonation():
             try:
                 child = self.impersonate(login['mode'], login['grantor'])
-            except SQLErrorException as e:
+            except (TimeoutError, SQLErrorException) as e:
                 logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}->{login["grantor"]} not ok')
                 logging.debug(f'{self.connection.server}:{self.connection.port}:could not impersonate {login["mode"]} {login["grantor"]} on {self.id}: {e}')
             else:
@@ -178,7 +178,7 @@ class MSSQLClient:
         for link in self.enum_links():
             try:
                 child = self.use_link(link['instance'])
-            except SQLErrorException as e:
+            except (TimeoutError, SQLErrorException) as e:
                 logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}=>{link["instance"]} not ok')
                 logging.debug(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {link["instance"]}: {e}')
             else:
@@ -229,3 +229,22 @@ class MSSQLClient:
     def configure(self, option: str, enabled: bool) -> None:
         value = 1 if enabled else 0
         self.query(f"EXEC master.dbo.sp_configure [{option}],{value};RECONFIGURE;")
+
+    @staticmethod
+    def escape(value: str) -> str:
+        # TODO: does this work?
+        return value.replace('\n', '\\n').replace('\r', '\\r').replace('\0', '\\0').replace('"', '\"').replace("'", "\'")
+        # source: https://github.com/elouajib/sqlescapy/blob/master/sqlescapy/sqlescape.py
+        #return str.translate(str.maketrans({
+        #    "\0": "\\0",
+        #    "\r": "\\r",
+        #    "\x08": "\\b",
+        #    "\x09": "\\t",
+        #    "\x1a": "\\z",
+        #    "\n": "\\n",
+        #    "\r": "\\r",
+        #    "\"": "",
+        #    "'": "",
+        #    "\\": "\\\\",
+        #    "%": "\\%"
+        #}))
