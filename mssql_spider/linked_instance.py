@@ -11,8 +11,7 @@ class LinkedInstance(MSSQLClient):
 
     def query(self, statement: str, decode: bool = True) -> list[dict[str, Any]]:
         assert '[' not in self.name and ']' not in self.name
-        statement = statement.replace("'", "''")
-        statement = f"EXEC ('{statement}') AT [{self.name}]"
+        statement = f'EXEC ({self.escape_string(statement)}) AT {self.escape_identifier(self.name)}'
         return self.parent.query(statement, decode=decode)
 
     def disconnect(self) -> None:

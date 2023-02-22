@@ -12,7 +12,7 @@ class ImpersonatedUser(MSSQLClient):
         self.name = name
 
     def query(self, statement: str, decode: bool = True) -> list[dict[str, Any]]:
-        statement = f"EXECUTE AS {self.mode}='{self.name}';{statement};REVERT"
+        statement = f'EXECUTE AS {self.mode}={self.escape_string(self.name)};{statement};REVERT'
         return self.parent.query(statement, decode=decode)
 
     def disconnect(self) -> None:

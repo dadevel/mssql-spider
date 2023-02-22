@@ -9,12 +9,9 @@ def read(client: MSSQLClient, hive: str, key: str, name: str) -> dict[str, Any]:
 
 
 def regread(client: MSSQLClient, hive: str, key: str, name: str) -> str:
-    assert "'" not in hive
-    assert "'" not in key
-    assert "'" not in name
     rows = client.query(
         'DECLARE @value SYSNAME '
-        f"EXECUTE master.dbo.xp_regread N'{hive}', N'{key}', N'{name}', @value OUTPUT "
+        f'EXECUTE master.dbo.xp_regread {client.escape_string(hive)}, {client.escape_string(key)}, {client.escape_string(name)}, @value OUTPUT '
         'SELECT @value AS [value]'
     )
     assert len(rows) == 1 and len(rows[0]) == 1
@@ -27,16 +24,11 @@ def delete(client: MSSQLClient, hive: str, key: str, name: str) -> dict[str, Any
 
 
 def regdeletevalue(client: MSSQLClient, hive: str, key: str, name: str) -> None:
-    assert "'" not in hive
-    assert "'" not in key
-    assert "'" not in name
-    client.query(f"EXECUTE master.dbo.xp_regdeletevalue N'{hive}', N'{key}', N'{name}'")
+    client.query(f'EXECUTE master.dbo.xp_regdeletevalue {client.escape_string(hive)}, {client.escape_string(key)}, {client.escape_string(name)}')
 
 
 def regdelete(client: MSSQLClient, hive: str, key: str) -> None:
-    assert "'" not in hive
-    assert "'" not in key
-    client.query(f"EXECUTE master.dbo.xp_regdelete N'{hive}', N'{key}'")
+    client.query(f'EXECUTE master.dbo.xp_regdelete {client.escape_string(hive)}, {client.escape_string(key)}')
 
 
 def write(client: MSSQLClient, hive: str, key: str, name: str, type: str, value: str) -> dict[str, Any]:
@@ -45,9 +37,4 @@ def write(client: MSSQLClient, hive: str, key: str, name: str, type: str, value:
 
 
 def regwrite(client: MSSQLClient, hive: str, key: str, name: str, type: str, value: str) -> None:
-    assert "'" not in hive
-    assert "'" not in key
-    assert "'" not in name
-    assert "'" not in type
-    assert "'" not in value
-    client.query(f"EXECUTE master.dbo.xp_regwrite N'{hive}', N'{key}', N'{name}', N'{type}', {value}")
+    client.query(f'EXECUTE master.dbo.xp_regwrite {client.escape_string(hive)}, {client.escape_string(key)}, {client.escape_string(name)}, {client.escape_string(type)}, {client.escape_string(value)}')

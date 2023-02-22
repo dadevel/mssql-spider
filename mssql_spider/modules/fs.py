@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Any
 
 from mssql_spider.client import MSSQLClient
@@ -15,8 +14,7 @@ def read(client: MSSQLClient, path: str) -> dict[str, Any]:
 
 def openrowset(client: MSSQLClient, path: str) -> bytes:
     # docs: https://learn.microsoft.com/en-us/sql/t-sql/functions/openrowset-transact-sql
-    assert "'" not in path
-    rows = client.query(f"SELECT bulkcolumn FROM openrowset(BULK '{path}', SINGLE_BLOB) AS x", decode=False)
+    rows = client.query(f'SELECT bulkcolumn FROM openrowset(BULK {client.escape_string(path)}, SINGLE_BLOB) AS x', decode=False)
     assert len(rows) == 1 and len(rows[0]) == 1
     bindata = bytes.fromhex(rows[0]['bulkcolumn'].decode('ascii'))
     return bindata
@@ -35,7 +33,7 @@ def write(client: MSSQLClient, local: str, remote: str) -> dict[str, Any]:
             "EXEC sp_oasetproperty @ob, 'Type', 1 "
             "EXEC sp_oamethod @ob, 'Open' "
             f"EXEC sp_oamethod @ob, 'Write', NULL, 0x{data.hex()} "
-            f"EXEC sp_oamethod @ob, 'SaveToFile', NULL, '{remote}', 2 "
+            f"EXEC sp_oamethod @ob, 'SaveToFile', NULL, {client.escape_string(remote)}, 2 "
             "EXEC sp_oamethod @ob, 'Close' "
             "EXEC sp_oadestroy @ob"
         )

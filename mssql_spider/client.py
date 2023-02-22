@@ -7,13 +7,11 @@ import socket
 
 from impacket.tds import MSSQL, SQLErrorException
 
+from mssql_spider import log
+
 if TYPE_CHECKING:
     from mssql_spider.linked_instance import LinkedInstance
     from mssql_spider.impersonated_user import ImpersonatedUser
-
-
-class MSSQLError(RuntimeError):
-    pass
 
 
 class SQLPermissionError(SQLErrorException):
@@ -63,10 +61,8 @@ class MSSQLClient:
             ok = self.connection.login(database, username, password, domain, hashes, windows_auth)
         self.connection.printReplies()  # sets _connection.lastError
         if not ok:
-            if isinstance(self.connection.lastError, Exception):
-                raise self.connection.lastError
-            else:
-                raise SQLErrorException('authentication failed for unknown reason')
+            error = self.connection.lastError if isinstance(self.connection.lastError, Exception) else SQLErrorException(self.connection.lastError) if self.connection.lastError else SQLErrorException('authentication failed for unknown reason')
+            raise error
         return self
 
     def disconnect(self) -> None:
@@ -74,7 +70,7 @@ class MSSQLClient:
 
     def query(self, statement: str, decode: bool = True) -> list[dict[str, Any]]:
         statement.strip(' ;')
-        logging.debug(f'{self.connection.server}:{self.connection.port}:sql:{statement}')
+        logging.debug(f'{self.connection.server}:{self.connection.port}:sql:query:{statement}')
         # sets _connection.replies and returns results
         rows: list[dict[str, Any]] = self.connection.sql_query(statement)  # type: ignore
         if decode:
@@ -87,11 +83,10 @@ class MSSQLClient:
             ]
         self.connection.printReplies()  # gets _connection.replies and sets _connection.lastError
         if self.connection.lastError:
-            if isinstance(self.connection.lastError, Exception):
-                raise self.connection.lastError
-            else:
-                raise SQLErrorException(self.connection.lastError)
-        logging.debug(f'{self.connection.server}:{self.connection.port}:sql:{rows}')
+            error = self.connection.lastError if isinstance(self.connection.lastError, Exception) else SQLErrorException(self.connection.lastError) if self.connection.lastError else SQLErrorException('query failed for unknown reason')
+            logging.debug(f'{self.connection.server}:{self.connection.port}:sql:error:{error}')
+            raise error
+        logging.debug(f'{self.connection.server}:{self.connection.port}:sql:result:{rows}')
         return rows
 
     def query_database(self, database: str, statement: str, decode: bool = True) -> list[dict[str, Any]]:
@@ -99,7 +94,7 @@ class MSSQLClient:
         assert len(rows) == 1 and len(rows[0]) == 1
         prev = rows[0]['db']
         try:
-            rows = self.query(f'USE {database};{statement};USE {prev}', decode=decode)
+            rows = self.query(f'USE {self.escape_identifier(database)};{statement};USE {self.escape_identifier(prev)}', decode=decode)
         except SQLErrorException as e:
             if re.search(r'The server principal .+? is not able to access the database .+? under the current security context', e.args[0]):
                 raise SQLPermissionError(e.args[0]) from e
@@ -126,23 +121,20 @@ class MSSQLClient:
             pass
         rows = self.query("SELECT system_user AS [login], user_name() AS [user], convert(varchar(max), serverproperty('MachineName')) AS [host]")
         assert len(rows) == 1 and len(rows[0]) == 3
+        roles = self.roles()
         self._userinfo = dict(
             host=rows[0]['host'].lower(),
             login=rows[0]['login'].lower(),
             user=rows[0]['user'].lower(),
-            roles=self.roles(),
+            roles=roles,
         )
         return self._userinfo  # type: ignore
-
-    def pwned(self) -> bool:
-        info = self.whoami()
-        return 'serveradmin' in info['roles']
 
     def roles(self) -> set[str]:
         #roles = {row['name'] for row in self.query("SELECT name FROM sys.database_principals WHERE type IN ('R','G') AND type_desc='DATABASE_ROLE' AND is_member(name)=1")}
         builtin_roles = 'sysadmin setupadmin serveradmin securityadmin processadmin diskadmin dbcreator bulkadmin'.split(' ')
         custom_roles = [row['name'] for row in self.query("SELECT name FROM sysusers WHERE issqlrole=1")]
-        statement = ','.join(f"is_srvrolemember('{role}') AS [{role}]" for role in builtin_roles + custom_roles)
+        statement = ','.join(f"is_srvrolemember({self.escape_string(role)}) AS {self.escape_identifier(role)}" for role in builtin_roles + custom_roles)
         rows = self.query(f'SELECT {statement}')
         assert len(rows) == 1 and len(rows[0]) == len(builtin_roles) + len(custom_roles)
         return {key for key, value in rows[0].items() if value}
@@ -157,11 +149,11 @@ class MSSQLClient:
             raise RecursionError('maximum recursion depth exceeded')
 
         if self.id in self.seen:
-            logging.info(f'{self.connection.server}:{self.connection.port}:{self.path} ok, already visited')
+            log.spider_status(self, 'repeated')
             return self
         self.seen.add(self.id)
 
-        logging.info(f'{self.connection.server}:{self.connection.port}:{self.path} ok')
+        log.spider_status(self, 'pwned' if 'sysadmin' in self.whoami()['roles'] else 'allowed')
 
         if visitor:
             visitor(self)
@@ -170,8 +162,8 @@ class MSSQLClient:
             try:
                 child = self.impersonate(login['mode'], login['grantor'])
             except (TimeoutError, SQLErrorException) as e:
-                logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}->{login["grantor"]} not ok')
-                logging.debug(f'{self.connection.server}:{self.connection.port}:could not impersonate {login["mode"]} {login["grantor"]} on {self.id}: {e}')
+                log.spider_status(self, 'denied', path=f'->{login["grantor"]}')
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not impersonate {login["mode"]} {login["grantor"]} on {self.id}: {e}')
             else:
                 child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
@@ -179,8 +171,8 @@ class MSSQLClient:
             try:
                 child = self.use_link(link['instance'])
             except (TimeoutError, SQLErrorException) as e:
-                logging.info(f'{self.connection.server}:{self.connection.port}:{self.path}=>{link["instance"]} not ok')
-                logging.debug(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {link["instance"]}: {e}')
+                log.spider_status(self, 'denied', path=f'=>{link["instance"]}')
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {link["instance"]}: {e}')
             else:
                 child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
@@ -208,8 +200,6 @@ class MSSQLClient:
                 results += self.query_database(database, f"SELECT 'user' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
             except SQLPermissionError:
                 pass
-            except SQLErrorException as e:
-                logging.exception(e)
         return results  # type: ignore
 
     def impersonate(self, mode: str, name: str) -> ImpersonatedUser:
@@ -228,23 +218,20 @@ class MSSQLClient:
 
     def configure(self, option: str, enabled: bool) -> None:
         value = 1 if enabled else 0
-        self.query(f"EXEC master.dbo.sp_configure [{option}],{value};RECONFIGURE;")
+        self.query(f"EXEC master.dbo.sp_configure {self.escape_string(option)},{value};RECONFIGURE;")
 
     @staticmethod
-    def escape(value: str) -> str:
-        # TODO: does this work?
-        return value.replace('\n', '\\n').replace('\r', '\\r').replace('\0', '\\0').replace('"', '\"').replace("'", "\'")
-        # source: https://github.com/elouajib/sqlescapy/blob/master/sqlescapy/sqlescape.py
-        #return str.translate(str.maketrans({
-        #    "\0": "\\0",
-        #    "\r": "\\r",
-        #    "\x08": "\\b",
-        #    "\x09": "\\t",
-        #    "\x1a": "\\z",
-        #    "\n": "\\n",
-        #    "\r": "\\r",
-        #    "\"": "",
-        #    "'": "",
-        #    "\\": "\\\\",
-        #    "%": "\\%"
-        #}))
+    def escape_identifier(value: str) -> str:
+        """
+        Escapes a string for use as database identifier.
+        """
+        value = value.replace('"', '""')
+        return f'"{value}"'
+
+    @staticmethod
+    def escape_string(value: str) -> str:
+        """
+        Escapes a string for use as string literal.
+        """
+        value = value.replace("'", "''")
+        return f"'{value}'"
