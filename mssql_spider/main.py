@@ -69,7 +69,7 @@ def main() -> None:
     exec = entrypoint.add_argument_group('execution')
     exec.add_argument('-x', '--exec-cmdshell', action='append', metavar='COMMAND', help='execute command trough xp_cmdshell(), privileged')
     exec.add_argument('--exec-ole', action='append', metavar='COMMAND', help='execute blind command trough OLE automation, privileged')
-    exec.add_argument('--exec-job', nargs=2, action='append', metavar=('COMMAND', 'cmd|powershell|jscript|vbscript'), help='execute blind command trough agent job, privileged, experimental!')
+    exec.add_argument('--exec-job', nargs=2, action='append', metavar=('sql|cmd|powershell|jscript|vbscript', 'COMMAND'), help='execute blind command trough agent job, privileged, experimental!')
     #exec.add_argument('--exec-dll', nargs='+', action='append', metavar=('ASSEMBLY FUNCTION', 'ARGS'), help='execute .NET DLL, privileged')
 
     reg = entrypoint.add_argument_group('registry')

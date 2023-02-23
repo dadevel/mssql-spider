@@ -81,7 +81,7 @@ def ole_automation_enabled(client: MSSQLClient) -> bool:
     return bool(rows[0]['value'])
 
 
-def job(client: MSSQLClient, command: str, language: str = 'powershell') -> dict[str, Any]:
+def job(client: MSSQLClient, language: str, command: str) -> dict[str, Any]:
     subsystems = dict(
         sql='TSQL',
         cmd='CmdExec',
