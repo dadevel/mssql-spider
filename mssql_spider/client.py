@@ -121,12 +121,11 @@ class MSSQLClient:
             pass
         rows = self.query("SELECT system_user AS [login], user_name() AS [user], convert(varchar(max), serverproperty('MachineName')) AS [host]")
         assert len(rows) == 1 and len(rows[0]) == 3
-        roles = self.roles()
         self._userinfo = dict(
             host=rows[0]['host'].lower(),
             login=rows[0]['login'].lower(),
             user=rows[0]['user'].lower(),
-            roles=roles,
+            roles=self.roles(),
         )
         return self._userinfo  # type: ignore
 
@@ -148,8 +147,14 @@ class MSSQLClient:
         if depth >= max_depth:
             raise RecursionError('maximum recursion depth exceeded')
 
-        if self.id in self.seen:
-            log.spider_status(self, 'repeated')
+        # FIXME in rare cases the whoami query fails for a unknown reason
+        try:
+            if self.id in self.seen:
+                log.spider_status(self, 'repeated')
+                return self
+        except SQLErrorException as e:
+            log.general_error((self.connection.server, self.connection.port), 'spider', e)
+            logging.exception(e)
             return self
         self.seen.add(self.id)
 
