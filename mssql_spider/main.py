@@ -28,7 +28,7 @@ HEADER = '\n'.join((
 
 
 def main() -> None:
-    entrypoint = ArgumentParser(formatter_class=lambda prog: HelpFormatter(prog, max_help_position=round(shutil.get_terminal_size().columns / 2)))  # scale width of help text with terminal width, 
+    entrypoint = ArgumentParser(formatter_class=lambda prog: HelpFormatter(prog, max_help_position=round(shutil.get_terminal_size().columns / 2)))  # scale width of help text with terminal width
 
     entrypoint.add_argument('--depth', type=int, default=10, metavar='UINT', help='default: 10')
     entrypoint.add_argument('--threads', type=int, default=min((os.cpu_count() or 1) * 4, 16), metavar='UINT', help='default: based on CPU cores')
@@ -51,7 +51,7 @@ def main() -> None:
     auth.add_argument('-D', '--database', metavar='NAME')
 
     enumeration = entrypoint.add_argument_group('enumeration')
-    enumeration.add_argument('-q', '--query', action='append', metavar='SQL', help='execute SQL statement, unprivileged')
+    enumeration.add_argument('-q', '--query', action='append', metavar='SQL', help='execute SQL statement, unprivileged, repeatable')
     enumeration.add_argument('--sysinfo', action='store_true', help='retrieve database and OS version, unprivileged')
     #enumeration.add_argument('--databases', action='store_true', help='unprivileged')
     #enumeration.add_argument('--tables', action='store_true', help='unprivileged')
@@ -63,8 +63,8 @@ def main() -> None:
     coercion.add_argument('--coerce-openrowset', action='append', metavar='UNCPATH', help='coerce NTLM trough openrowset(), privileged')
 
     fs = entrypoint.add_argument_group('filesystem')
-    fs.add_argument('--fs-read', action='append', metavar='REMOTE', help='read file trough openrowset(), privileged')
-    fs.add_argument('--fs-write', nargs=2, action='append', metavar=('LOCAL', 'REMOTE'), help='write file trough OLE automation, privileged')
+    fs.add_argument('--file-read', action='append', metavar='REMOTE', help='read file trough openrowset(), privileged')
+    fs.add_argument('--file-write', nargs=2, action='append', metavar=('LOCAL', 'REMOTE'), help='write file trough OLE automation, privileged')
 
     exec = entrypoint.add_argument_group('execution')
     exec.add_argument('-x', '--exec-cmdshell', action='append', metavar='COMMAND', help='execute command trough xp_cmdshell(), privileged')
@@ -102,8 +102,18 @@ def main() -> None:
     print(HEADER)
 
     with ThreadPoolExecutor(max_workers=opts.threads) as pool:
-        for _ in pool.map(_process_target, itertools.repeat(opts), _load_targets(opts.targets)):
+        for _ in pool.map(_process_target, itertools.repeat(opts), _load_targets(opts.targets), itertools.repeat(opts.user), itertools.repeat(opts.password), itertools.repeat(opts.hashes), itertools.repeat(opts.aes_key)):
             continue
+
+
+#def _load_files(items: list[str]) -> Generator[str, None, None]:
+#    for item in items:
+#        if os.path.isfile(item):
+#            with open(item) as file:
+#                for line in file:
+#                    yield line
+#        else:
+#            yield item
 
 
 def _load_targets(targets: list[str]) -> Generator[tuple[str, int], None, None]:
@@ -124,7 +134,7 @@ def _parse_target(value: str) -> tuple[str, int]:
         return parts[0], int(parts[1])
 
 
-def _process_target(opts: Namespace, target: tuple[str, int]) -> None:
+def _process_target(opts: Namespace, target: tuple[str, int], user: str, password: str, hashes: str, aes_key: str) -> None:
     try:
         client = MSSQLClient.connect(target[0], target[1], timeout=opts.timeout)
     except Exception as e:
@@ -133,7 +143,17 @@ def _process_target(opts: Namespace, target: tuple[str, int]) -> None:
         return
 
     try:
-        client.login(opts.database, opts.user, opts.password, opts.domain, opts.hashes, opts.aes_key, opts.dc_ip, opts.windows_auth, opts.kerberos)
+        client.login(
+            domain=opts.domain,
+            username=user,
+            password=password,
+            hashes=hashes,
+            aes_key=aes_key,
+            windows_auth=opts.windows_auth,
+            kerberos=opts.kerberos,
+            kdc_host=opts.dc_ip,
+            database=opts.database,
+        )
     except (Exception, OSError) as e:
         log.general_error(target, 'authentication', e)
         logging.exception(e)
@@ -153,10 +173,10 @@ def _visitor(opts: Namespace, client: MSSQLClient) -> None:
         _try_visitor(client, 'coerce-fileexist', coerce.fileexist, opts.coerce_fileexist)
     if opts.coerce_openrowset:
         _try_visitor(client, 'coerce-openrowset', coerce.openrowset, opts.coerce_openrowset)
-    if opts.fs_read:
-        _try_visitor(client, 'fs-read', fs.read, opts.fs_read)
-    if opts.fs_write:
-        _try_visitor(client, 'fs-write', fs.write, opts.fs_write)
+    if opts.file_read:
+        _try_visitor(client, 'fs-read', fs.read, opts.file_read)
+    if opts.file_write:
+        _try_visitor(client, 'fs-write', fs.write, opts.file_write)
     if opts.exec_cmdshell:
         _try_visitor(client, 'exec-cmdshell', exec.cmdshell, opts.exec_cmdshell)
     if opts.exec_ole:

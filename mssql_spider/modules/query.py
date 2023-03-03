@@ -8,6 +8,10 @@ def run(client: MSSQLClient, statement: str) -> dict[str, Any]:
     if len(rows) == 0:
         return dict()
     elif len(rows) == 1:
-        return rows[0]
+        first_key = next(iter(rows[0].keys()))
+        if not first_key:
+            return dict(value=rows[0][first_key])
+        else:
+            return rows[0]
     else:
         return dict(rows=rows)

