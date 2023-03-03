@@ -10,7 +10,7 @@ def dirtree(client: MSSQLClient, uncpath: str) -> dict[str, Any]:
 
 
 def fileexist(client: MSSQLClient, uncpath: str) -> dict[str, Any]:
-    client.query(f"EXEC master.sys.xp_fileexist {client.escape_string(uncpath)},1,1")
+    client.query(f"EXEC master.sys.xp_fileexist {client.escape_string(uncpath)}")
     return {}
 
 

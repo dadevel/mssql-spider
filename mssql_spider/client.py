@@ -2,7 +2,6 @@ from __future__ import annotations
 from typing import Any, Callable, TypedDict, TYPE_CHECKING
 
 import logging
-import re
 import socket
 
 from impacket.tds import MSSQL, SQLErrorException
@@ -29,9 +28,16 @@ class ImpersonationInfo(TypedDict):
 
 
 class InstanceInfo(TypedDict):
-    instance: str
     local_login: str
     remote_login: str
+
+
+class DatabaseInfo(TypedDict):
+    name: str
+    owner: str
+    trusted: bool
+    encrypted: bool
+    accessible: bool
 
 
 class MSSQLClient:
@@ -49,7 +55,7 @@ class MSSQLClient:
         connection.socket = sock
         return cls(connection)
 
-    def login(self, database: str|None, username: str, password: str, domain: str, hashes: str|None, aes_key: str, kdc_host: str|None, windows_auth: bool, kerberos: bool) -> MSSQLClient:
+    def login(self, domain: str = '', username: str = '', password: str = '', hashes: str|None = None, aes_key: str = '', windows_auth: bool = False, kerberos: bool = False, kdc_host: str|None = None, database: str|None = None) -> MSSQLClient:
         if kerberos:
             ok = self.connection.kerberosLogin(database, username, password, domain, hashes, aes_key, kdcHost=kdc_host)
         else:
@@ -83,6 +89,11 @@ class MSSQLClient:
             raise error
         logging.debug(f'{self.connection.server}:{self.connection.port}:sql:result:{rows}')
         return rows
+
+    def query_single(self, statement: str, decode: bool = True) -> dict[str, Any]:
+        rows = self.query(statement, decode=decode)
+        assert len(rows) == 1
+        return rows[0]
 
     def query_database(self, database: str, statement: str, decode: bool = True) -> list[dict[str, Any]]:
         rows = self.query('SELECT db_name() AS [db]')
@@ -127,10 +138,17 @@ class MSSQLClient:
         assert len(rows) == 1 and len(rows[0]) == len(builtin_roles) + len(custom_roles)
         return {key for key, value in rows[0].items() if value}
 
-    def databases(self) -> set[str]:
-        rows = self.query('SELECT name FROM sys.databases')
-        databases = {row['name'] for row in rows}
-        return databases
+    def databases(self) -> dict[str, DatabaseInfo]:
+        rows = self.query('SELECT name, suser_sname(owner_sid) AS [owner], is_trustworthy_on AS [trusted], is_encrypted AS [encrypted], has_dbaccess(name) AS [accessible] FROM sys.databases')
+        databases = {row['name']: row for row in rows}
+        return databases  # type: ignore
+
+    def columns(self, pattern: str = '%passw%') -> list[dict[str, Any]]:
+        results = []
+        for database in self.databases():
+            rows = self.query_database(database, f"SELECT {self.escape_string(database)} AS [database], table_name AS [table], column_name AS [column], data_type AS [type] FROM information_schema.columns WHERE column_name LIKE {self.escape_string(pattern)}")
+            results.extend(rows)
+        return results
 
     def spider(self, visitor: Callable[[MSSQLClient], Any]|None = None, max_depth: int = 10, depth: int = 0) -> MSSQLClient:
         if depth >= max_depth:
@@ -141,7 +159,7 @@ class MSSQLClient:
             if self.id in self.seen:
                 log.spider_status(self, 'repeated')
                 return self
-        except SQLErrorException as e:
+        except (TimeoutError, SQLErrorException) as e:
             log.general_error((self.connection.server, self.connection.port), 'spider', e)
             logging.exception(e)
             return self
@@ -156,29 +174,36 @@ class MSSQLClient:
             try:
                 child = self.impersonate(login['mode'], login['grantor'])
             except (TimeoutError, SQLErrorException) as e:
-                log.spider_status(self, 'denied', path=f'->{login["grantor"]}')
+                log.spider_status(self, 'denied', path=f'->{login["grantor"]}', message=str(e).removeprefix('ERROR: Line 1: '))
                 logging.warning(f'{self.connection.server}:{self.connection.port}:could not impersonate {login["mode"]} {login["grantor"]} on {self.id}: {e}')
             else:
                 child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
-        for link in self.enum_links():
+        for instance_name in self.enum_links():
             try:
-                child = self.use_link(link['instance'])
+                child = self.use_link(instance_name)
             except (TimeoutError, SQLErrorException) as e:
-                log.spider_status(self, 'denied', path=f'=>{link["instance"]}')
-                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {link["instance"]}: {e}')
+                log.spider_status(self, 'denied', path=f'=>{instance_name}', message=str(e).removeprefix('ERROR: Line 1: '))
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {instance_name}: {e}')
             else:
                 child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
         return self
 
-    def enum_links(self) -> list[InstanceInfo]:
+    def enum_links(self) -> dict[str, InstanceInfo]:
         # sometimes sp_helplinkedsrvlogin does not return results but sp_linkedservers does
-        rows = self.query('EXEC sp_linkedservers')
-        results = [dict(instance=row['SRV_NAME']) for row in rows]
-        rows = self.query('EXEC sp_helplinkedsrvlogin')
-        results += [dict(instance=row['Linked Server'], local_login=row['Local Login'], remote_login=row['Remote Login']) for row in rows if row['Local Login'] != 'NULL']
-        return results  # type: ignore
+        try:
+            a = {
+                row['SRV_NAME']: dict(local_login='NULL', remote_login='NULL')
+                for row in self.query('EXEC sp_linkedservers')
+            }
+            b = {
+                row['Linked Server']: dict(local_login=row['Local Login'], remote_login=row['Remote Login'])
+                for row in self.query('EXEC sp_helplinkedsrvlogin')
+            }
+            return a | b  # type: ignore
+        except (TimeoutError, SQLErrorException):
+            return {}
 
     def use_link(self, link: str) -> LinkedInstance:
         from mssql_spider.linked_instance import LinkedInstance
@@ -188,11 +213,13 @@ class MSSQLClient:
 
     def enum_impersonation(self) -> list[ImpersonationInfo]:
         results = []
+        if self.whoami()['user'] == 'dbo' and self.whoami()['login'] != 'sa':
+            results.append(dict(mode='login', database='master', grantee='NULL', grantor='sa'))
         for database in self.databases():
             try:
                 results += self.query_database(database, "SELECT 'login' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.server_permissions pe JOIN sys.server_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.server_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
                 results += self.query_database(database, f"SELECT 'user' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
-            except SQLErrorException:
+            except (TimeoutError, SQLErrorException):
                 pass
         return results  # type: ignore
 

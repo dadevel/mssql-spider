@@ -9,7 +9,7 @@ from rich.text import Text
 console = Console(highlighter=NullHighlighter())
 
 
-def spider_status(client, status: str, path: str = '') -> None:
+def spider_status(client, status: str, path: str = '', message: str|None = None) -> None:
     match status:
         case 'pwned':
             style = Style(color='green', bold=True)
@@ -23,7 +23,7 @@ def spider_status(client, status: str, path: str = '') -> None:
         f'{client.connection.server}:{client.connection.port}',
         client.path + path,
         'spider',
-        dict(status=Text(status, style=style)),
+        dict(status=Text(status, style=style), message=message),
     )
 
 
