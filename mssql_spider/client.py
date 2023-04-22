@@ -14,11 +14,6 @@ if TYPE_CHECKING:
     from mssql_spider.impersonated_user import ImpersonatedUser
 
 
-class SQLPermissionError(SQLErrorException):
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-
-
 class UserInfo(TypedDict):
     host: str
     login: str
@@ -93,13 +88,7 @@ class MSSQLClient:
         rows = self.query('SELECT db_name() AS [db]')
         assert len(rows) == 1 and len(rows[0]) == 1
         prev = rows[0]['db']
-        try:
-            rows = self.query(f'USE {self.escape_identifier(database)};{statement};USE {self.escape_identifier(prev)}', decode=decode)
-        except SQLErrorException as e:
-            if re.search(r'The server principal .+? is not able to access the database .+? under the current security context', e.args[0]):
-                raise SQLPermissionError(e.args[0]) from e
-            else:
-                raise e
+        rows = self.query(f'USE {self.escape_identifier(database)};{statement};USE {self.escape_identifier(prev)}', decode=decode)
         return rows
 
     def ping(self) -> MSSQLClient:
@@ -203,7 +192,7 @@ class MSSQLClient:
             try:
                 results += self.query_database(database, "SELECT 'login' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.server_permissions pe JOIN sys.server_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.server_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
                 results += self.query_database(database, f"SELECT 'user' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
-            except SQLPermissionError:
+            except SQLErrorException:
                 pass
         return results  # type: ignore
 
