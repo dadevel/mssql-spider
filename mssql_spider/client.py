@@ -170,6 +170,12 @@ class MSSQLClient:
         if visitor:
             visitor(self)
 
+        self.spider_impersonations(visitor, max_depth, depth)
+        self.spider_links(visitor, max_depth, depth)
+
+        return self
+
+    def spider_impersonations(self, visitor: Callable[[MSSQLClient], Any]|None, max_depth: int, depth: int) -> None:
         for login in self.enum_impersonation():
             try:
                 child = self.impersonate(login['mode'], login['grantor'])
@@ -179,16 +185,23 @@ class MSSQLClient:
             else:
                 child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
+    def spider_links(self, visitor: Callable[[MSSQLClient], Any]|None, max_depth: int, depth: int) -> None:
         for instance_name in self.enum_links():
+            # when link fails due to rpc error try again with openquery
             try:
-                child = self.use_link(instance_name)
+                child = self.use_rpc_link(instance_name)
             except (TimeoutError, SQLErrorException) as e:
                 log.spider_status(self, 'denied', path=f'=>{instance_name}', message=str(e).removeprefix('ERROR: Line 1: '))
-                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {instance_name}: {e}')
-            else:
-                child.spider(visitor, max_depth=max_depth, depth=depth + 1)
-
-        return self
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use rpc link from {self.id} to {instance_name}: {e}')
+                if 'rpc' not in str(e).lower():
+                    break
+            try:
+                child = self.use_query_link(instance_name)
+            except (TimeoutError, SQLErrorException) as e:
+                log.spider_status(self, 'denied', path=f'=>{instance_name}', message=str(e).removeprefix('ERROR: Line 1: '))
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use query link from {self.id} to {instance_name}: {e}')
+                break
+            child.spider(visitor, max_depth=max_depth, depth=depth + 1)
 
     def enum_links(self) -> dict[str, InstanceInfo]:
         # sometimes sp_helplinkedsrvlogin does not return results but sp_linkedservers does
@@ -205,9 +218,15 @@ class MSSQLClient:
         except (TimeoutError, SQLErrorException):
             return {}
 
-    def use_link(self, link: str) -> LinkedInstance:
-        from mssql_spider.linked_instance import LinkedInstance
-        client = LinkedInstance(self, link, seen=self.seen)
+    def use_rpc_link(self, link: str) -> LinkedInstance:
+        from mssql_spider.linked_instance import LinkedRpcInstance
+        client = LinkedRpcInstance(self, link, seen=self.seen)
+        client.ping()
+        return client
+
+    def use_query_link(self, link: str) -> LinkedInstance:
+        from mssql_spider.linked_instance import LinkedQueryInstance
+        client = LinkedQueryInstance(self, link, seen=self.seen)
         client.ping()
         return client
 

