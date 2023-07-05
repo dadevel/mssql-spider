@@ -1,4 +1,5 @@
 from typing import Any
+
 from impacket.tds import SQLErrorException
 
 from rich.console import Console

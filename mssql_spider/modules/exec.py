@@ -1,8 +1,7 @@
 from typing import Any
-import random
-import string
 
 from mssql_spider.client import MSSQLClient
+from mssql_spider.util import random_string
 
 
 def cmdshell(client: MSSQLClient, command: str) -> dict[str, Any]:
@@ -117,10 +116,6 @@ def job(client: MSSQLClient, language: str, command: str) -> dict[str, Any]:
         if not enabled:
             disable_sql_server_agent(client)
     return {}
-
-
-def random_string(length: int = 8) -> str:
-    return ''.join(random.choice(string.ascii_lowercase) for _ in range(length))
 
 
 def sql_server_agent_enabled(client: MSSQLClient) -> bool:

@@ -12,7 +12,7 @@ import sys
 
 from mssql_spider import log
 from mssql_spider.client import MSSQLClient
-from mssql_spider.modules import coerce, dump, exec, fs, query, reg, sysinfo
+from mssql_spider.modules import clrexec, coerce, dump, exec, fs, query, reg, sysinfo
 
 HEADER = '\n'.join((
     r'                              __                 _     __',
@@ -70,7 +70,7 @@ def main() -> None:
     exec.add_argument('-x', '--exec-cmdshell', action='append', metavar='COMMAND', help='execute command trough xp_cmdshell(), privileged')
     exec.add_argument('--exec-ole', action='append', metavar='COMMAND', help='execute blind command trough OLE automation, privileged')
     exec.add_argument('--exec-job', nargs=2, action='append', metavar=('sql|cmd|powershell|jscript|vbscript', 'COMMAND'), help='execute blind command trough agent job, privileged, experimental!')
-    #exec.add_argument('--exec-dll', nargs='+', action='append', metavar=('ASSEMBLY FUNCTION', 'ARGS'), help='execute .NET DLL, privileged')
+    exec.add_argument('--exec-clr', nargs='+', action='append', metavar=('ASSEMBLY FUNCTION', 'ARGS'), help='execute .NET DLL, privileged')
 
     reg = entrypoint.add_argument_group('registry')
     reg.add_argument('--reg-read', nargs=3, action='append', metavar=('HIVE', 'KEY', 'NAME'), help='read registry value, privileged, experimental!')
@@ -85,6 +85,11 @@ def main() -> None:
     entrypoint.add_argument('targets', nargs='+', metavar='HOST[:PORT]|FILE')
 
     opts = entrypoint.parse_args()
+
+    if opts.exec_clr:
+        if any(len(argset) < 2 for argset in opts.exec_clr):
+            entrypoint.print_help()
+            return
 
     if opts.debug:
         logging.basicConfig(level=logging.DEBUG, stream=sys.stderr, format='%(levelname)s:%(name)s:%(module)s:%(lineno)s:%(message)s')
@@ -194,8 +199,8 @@ def _visitor(opts: Namespace, client: MSSQLClient) -> None:
         _try_visitor(client, 'exec-ole', exec.ole, opts.exec_ole)
     if opts.exec_job:
         _try_visitor(client, 'exec-job', exec.job, opts.exec_job)
-    #if opts.exec_dll:
-    #    _try_visitor(client, 'exec-dll', exec.rundll, opts.exec_dll)
+    if opts.exec_clr:
+        _try_visitor(client, 'exec-clr', clrexec.clrexec, opts.exec_clr)
     if opts.reg_read:
         _try_visitor(client, 'reg-read', reg.read, opts.reg_read)
     if opts.reg_write:
