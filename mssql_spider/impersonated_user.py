@@ -20,5 +20,4 @@ class ImpersonatedUser(MSSQLClient):
 
     @property
     def path(self) -> str:
-        symbol = '-' if self.mode == 'login' else '~'
-        return f'{self.parent.path}{symbol}>{super().path}'
+        return f'{self.parent.path}->{super().path}'

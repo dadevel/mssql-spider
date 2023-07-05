@@ -159,9 +159,9 @@ class MSSQLClient:
             if self.id in self.seen:
                 log.spider_status(self, 'repeated')
                 return self
-        except (TimeoutError, SQLErrorException) as e:
+        except (SQLErrorException) as e:
             log.general_error((self.connection.server, self.connection.port), 'spider', e)
-            logging.exception(e)
+            logging.error(f'{self.connection.server}:{self.connection.port}: {e}')
             return self
         self.seen.add(self.id)
 
@@ -179,7 +179,7 @@ class MSSQLClient:
         for login in self.enum_impersonation():
             try:
                 child = self.impersonate(login['mode'], login['grantor'])
-            except (TimeoutError, SQLErrorException) as e:
+            except (SQLErrorException) as e:
                 log.spider_status(self, 'denied', path=f'->{login["grantor"]}', message=str(e).removeprefix('ERROR: Line 1: '))
                 logging.warning(f'{self.connection.server}:{self.connection.port}:could not impersonate {login["mode"]} {login["grantor"]} on {self.id}: {e}')
             else:
@@ -187,23 +187,29 @@ class MSSQLClient:
 
     def spider_links(self, visitor: Callable[[MSSQLClient], Any]|None, max_depth: int, depth: int) -> None:
         for instance_name in self.enum_links():
-            # when link fails due to rpc error try again with openquery
+            child = None
+
             try:
                 child = self.use_rpc_link(instance_name)
-            except (TimeoutError, SQLErrorException) as e:
+            except (SQLErrorException) as e:
                 log.spider_status(self, 'denied', path=f'=>{instance_name}', message=str(e).removeprefix('ERROR: Line 1: '))
-                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use rpc link from {self.id} to {instance_name}: {e}')
-                if 'rpc' not in str(e).lower():
-                    break
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {instance_name} via rpc: {e}')
+            if child:
+                child.spider(visitor, max_depth=max_depth, depth=depth + 1)
+                continue
+
+            # when link fails due to rpc error try again with openquery
             try:
                 child = self.use_query_link(instance_name)
-            except (TimeoutError, SQLErrorException) as e:
+            except (SQLErrorException) as e:
                 log.spider_status(self, 'denied', path=f'=>{instance_name}', message=str(e).removeprefix('ERROR: Line 1: '))
-                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use query link from {self.id} to {instance_name}: {e}')
-                break
-            child.spider(visitor, max_depth=max_depth, depth=depth + 1)
+                logging.warning(f'{self.connection.server}:{self.connection.port}:could not use link from {self.id} to {instance_name} via query: {e}')
+            if child:
+                child.spider(visitor, max_depth=max_depth, depth=depth + 1)
+                continue
 
     def enum_links(self) -> dict[str, InstanceInfo]:
+        # TODO: implement "SELECT srvname, srvproduct, rpcout FROM master.sys.sysservers"
         # sometimes sp_helplinkedsrvlogin does not return results but sp_linkedservers does
         try:
             a = {
@@ -215,7 +221,7 @@ class MSSQLClient:
                 for row in self.query('EXEC sp_helplinkedsrvlogin')
             }
             return a | b  # type: ignore
-        except (TimeoutError, SQLErrorException):
+        except (SQLErrorException):
             return {}
 
     def use_rpc_link(self, link: str) -> LinkedInstance:
@@ -234,13 +240,16 @@ class MSSQLClient:
         results = []
         if self.whoami()['user'] == 'dbo' and self.whoami()['login'] != 'sa':
             results.append(dict(mode='login', database='master', grantee='NULL', grantor='sa'))
-        for database in self.databases():
-            try:
-                results += self.query_database(database, "SELECT 'login' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.server_permissions pe JOIN sys.server_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.server_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
-                results += self.query_database(database, f"SELECT 'user' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
-            except (TimeoutError, SQLErrorException):
-                pass
-        return results  # type: ignore
+        try:
+            for database in self.databases():
+                try:
+                    results += self.query_database(database, "SELECT 'login' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.server_permissions pe JOIN sys.server_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.server_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
+                    results += self.query_database(database, f"SELECT 'user' as [mode], db_name() AS [database], pr.name AS [grantee], pr2.name AS [grantor] FROM sys.database_permissions pe JOIN sys.database_principals pr ON pe.grantee_principal_id=pr.principal_id JOIN sys.database_principals pr2 ON pe.grantor_principal_id=pr2.principal_id WHERE pe.type='IM' AND (pe.state='G' OR pe.state='W')")
+                except (SQLErrorException):
+                    pass
+            return results  # type: ignore
+        except (SQLErrorException):
+            return []
 
     def impersonate(self, mode: str, name: str) -> ImpersonatedUser:
         from mssql_spider.impersonated_user import ImpersonatedUser

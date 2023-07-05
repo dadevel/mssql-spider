@@ -32,4 +32,4 @@ class LinkedQueryInstance(LinkedInstance):
 
     @property
     def path(self) -> str:
-        return f'{self.parent.path}:>{super().path}'
+        return f'{self.parent.path}=>{super().path}'

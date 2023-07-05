@@ -36,12 +36,13 @@ def module_result(client, module: str, result: dict[str, Any]) -> None:
     )
 
 
-def general_error(target: tuple[str, int], module: str, exception: Exception) -> None:
+def general_error(target: tuple[str, int], module: str, exception: Exception, hint: str|None = None) -> None:
     error(
         f'{target[0]}:{target[1]}',
         None,
         module,
         exception,
+        hint,
     )
 
 
@@ -54,12 +55,16 @@ def module_error(client, module: str, exception: Exception) -> None:
     )
 
 
-def error(target: str, path: str|None, module: str, error: Exception) -> None:
+def error(target: str, path: str|None, module: str, error: Exception, hint: str|None = None) -> None:
     write(
         target,
         path,
         module,
-        dict(status=Text('error', style=Style(color='red')), message=str(error).removeprefix('ERROR: ').removeprefix('Line 1: ') if isinstance(error, SQLErrorException) else str(error)),
+        dict(
+            status=Text('error', style=Style(color='red')),
+            message=str(error).removeprefix('ERROR: ').removeprefix('Line 1: ') if isinstance(error, SQLErrorException) else str(error),
+            hint=hint,
+        ),
     )
 
 
@@ -69,6 +74,7 @@ def write(target: str, path: str|None, module: str, message: dict[str, Any]) -> 
         Text(target, style=Style(color='blue')),
         *prefix,
         _format_result(message),
+        soft_wrap=True,
     )
 
 
