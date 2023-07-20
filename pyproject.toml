@@ -1,17 +1,22 @@
 [tool.poetry]
 name = "mssql-spider"
-version = "0.4.4"
+version = "0.5.0"
 description = ""
 authors = ["dadevel <dadevel@disroot.org>"]
 license = "MIT"
-packages = [{include = "mssql_spider"}]
+packages = [{include = "mssqlmap"}]
 
 [tool.poetry.scripts]
-mssql-spider = "mssql_spider.main:main"
+mssql-discover = "mssqlmap.discover.main:main"
+mssql-ping = "mssqlmap.ping:main"
+mssql-spider = "mssqlmap.spider:main"
+mssql-spray = "mssqlmap.spray:main"
 
 [tool.poetry.dependencies]
 python = "^3.10"
 impacket = {git = "https://github.com/theporgs/impacket.git"}
+pydantic = "^2.0.3"
+requests = "^2.31.0"
 rich = "^13.5.2"
 
 [build-system]
