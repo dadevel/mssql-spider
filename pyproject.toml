@@ -12,7 +12,7 @@ mssql-spider = "mssql_spider.main:main"
 [tool.poetry.dependencies]
 python = "^3.10"
 impacket = {git = "https://github.com/theporgs/impacket.git"}
-rich = "^13.5.1"
+rich = "^13.5.2"
 
 [build-system]
 requires = ["poetry-core"]
