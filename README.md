@@ -21,6 +21,8 @@ b) With [pip](https://github.com/pypa/pip).
 pip install --user git+https://github.com/dadevel/mssql-spider.git@main
 ~~~
 
+If you want the latest features replace `@main` with `@unstable`.
+
 # Usage
 
 Authenticate as local user and enumerate recursively.
