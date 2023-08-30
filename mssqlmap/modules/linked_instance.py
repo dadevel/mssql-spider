@@ -77,8 +77,10 @@ class LinkSpider(SpiderModule):
                 child.test()
                 yield child
                 continue
+            except TimeoutError as e:
+                client.reconnect()
+                yield BrokenLinkedInstance(client, e, hostname=name, instance='')
             except SQLErrorException as e:
-                logging.debug(f'TEST client_user={client.query("select user, system_user")}')
                 yield BrokenLinkedInstance(client, e, hostname=name, instance='')
 
             # when link fails due to rpc error try again with openquery
@@ -87,6 +89,9 @@ class LinkSpider(SpiderModule):
                 child.test()
                 yield child
                 continue
+            except TimeoutError as e:
+                client.reconnect()
+                yield BrokenLinkedInstance(client, e, hostname=name, instance='')
             except SQLErrorException as e:
                 yield BrokenLinkedInstance(client, e, hostname=name, instance='')
 
