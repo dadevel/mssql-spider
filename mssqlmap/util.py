@@ -5,53 +5,50 @@ import random
 import string
 import sys
 
-from mssqlmap.model import DatabaseServicePrincipal
-
-PIPELINE = not os.isatty(sys.stdout.fileno())
+from mssqlmap.connection import Connection
 
 
 def log(stdout: bool = False, **kwargs) -> None:
-    print(json.dumps(kwargs, indent=None if PIPELINE else 2, separators=(',', ':') if PIPELINE else None, sort_keys=False), file=sys.stdout if stdout else sys.stderr)
+    print(json.dumps(kwargs, indent=None, separators=(',', ':'), sort_keys=False), file=sys.stdout if stdout else sys.stderr)
 
 
-T = TypeVar('T')
-
-def load_targets(targets: list[str], model: T|None = None) -> Generator[T|DatabaseServicePrincipal, None, None]:
-    for target in targets:
-        if target == '-':
-            yield from load_target_file(sys.stdin, model)
-        elif os.path.exists(target):
-            with open(target, 'r') as file:
-                yield from load_target_file(file, model)
-        else:
-            try:
-                yield parse_host(target)
-            except Exception:
-                log(error='invalid host', target=target)
+def load_targets(args: list[str], json_input: bool) -> Generator[Connection, None, None]:
+    if args:
+        yield from load_args(args)
+    else:
+        yield from load_stdin(json_input)
 
 
-def load_target_file(file: TextIO, model: T|None) -> Generator[T|DatabaseServicePrincipal, None, None]:
-    for line in file:
+def load_args(args: list[str]) -> Generator[Connection, None, None]:
+    for arg in args:
+        try:
+            yield parse_host_tuple(arg)
+        except Exception:
+            log(error='invalid host tuple', input=arg)
+
+
+def load_stdin(json_input: bool) -> Generator[Connection, None, None]:
+    for line in sys.stdin:
         line = line.rstrip('\n')
         if not line:
             continue
-        if model:
+        if json_input:
             try:
-                yield model.model_validate(json.loads(line))  # type: ignore
+                yield Connection.model_validate(json.loads(line))
             except Exception:
-                log(error='invalid model', target=line)
+                log(error='invalid model', input=line)
         else:
             try:
-                yield parse_host(line)
+                yield parse_host_tuple(line)
             except Exception:
-                log(error='invalid host', target=line)
+                log(error='invalid host tuple', input=line)
 
 
-def parse_host(target: str) -> DatabaseServicePrincipal:
-    parts = target.split(':', maxsplit=1)
+def parse_host_tuple(line: str) -> Connection:
+    parts = line.split(':', maxsplit=1)
     host = parts[0]
     port = int(parts[1]) if len(parts) > 1 else 1433
-    return DatabaseServicePrincipal(host=host, port=port)
+    return Connection(host=host, port=port)
 
 
 def load_wordlists(items: list[str]) -> Generator[str, None, None]:

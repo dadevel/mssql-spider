@@ -3,12 +3,12 @@ from typing import Any
 from requests.auth import HTTPBasicAuth
 import requests
 
-from mssqlmap.model import DatabaseServicePrincipal
+from mssqlmap.connection import Connection
 
 DEFAULT_SPNS = 'MSSQLSVC MSSERVERCLUSTER MSCLUSTERVIRTUALSERVER MSSERVERCLUSTERMGMTAPI'.split(' ')
 
 
-def get_spns(url: str, username: str, password: str, prefixes: list[str]|None = None) -> set[DatabaseServicePrincipal]:
+def get_spns(url: str, username: str, password: str, prefixes: list[str]|None = None) -> set[Connection]:
     prefixes = prefixes or DEFAULT_SPNS
     filter = ' OR '.join(f'toUpper(s) STARTS WITH "{p}/"' for p in prefixes)
     objects = query(url, username, password, f'MATCH (o) WHERE o.enabled AND ANY (s IN o.serviceprincipalnames WHERE {filter}) RETURN o')
@@ -37,7 +37,7 @@ def get_spns(url: str, username: str, password: str, prefixes: list[str]|None = 
             # append domain if missing
             if '.' not in spn:
                 spn = f'{spn}.{obj["domain"]}'
-            result.add(DatabaseServicePrincipal(host=spn.lower(), port=port))
+            result.add(Connection(host=spn.lower(), port=port))
     return result
 
 

@@ -15,7 +15,6 @@ from rich.text import Text
 
 from mssqlmap.client import BaseModule, BrokenClient, Client
 from mssqlmap.connection import Connection, SQLErrorException
-from mssqlmap.model import DatabaseInstance, DatabaseServicePrincipal
 from mssqlmap.modules.clrexec import ClrExecutor
 from mssqlmap.modules.coerce import DirTreeCoercer, FileExistCoercer, OpenRowSetCoercer
 from mssqlmap.modules.dump import HashDumper, JobDumper, AutoLogonDumper
@@ -80,8 +79,6 @@ def main() -> None:
 
     entrypoint.add_argument('--threads', type=int, default=default.THREAD_COUNT, metavar='UINT', help='default: based on CPU cores')
     entrypoint.add_argument('--timeout', type=int, default=default.TIMEOUT, metavar='SECONDS', help=f'default: {default.TIMEOUT}')
-    entrypoint.add_argument('--json-input', action=BooleanOptionalAction, default=not os.isatty(sys.stdin.fileno()), help='expect JSONL input, default: if pipeline')
-    entrypoint.add_argument('--json-output', action=BooleanOptionalAction, default=not os.isatty(sys.stdout.fileno()), help='emit JSONL output, default: if pipeline')
     entrypoint.add_argument('--debug', action=BooleanOptionalAction, default=False, help='write verbose logs to stderr')
 
     auth = entrypoint.add_argument_group('authentication')
@@ -138,7 +135,10 @@ def main() -> None:
     creds.add_argument('--dump-jobs', action='store_true', help='extract source code of agent jobs, privileged')
     creds.add_argument('--dump-autologon', action='store_true', help='extract autologon credentials from registry, privileged')
 
-    entrypoint.add_argument('-t', '--targets', nargs='*', default=['-'], metavar='HOST[:PORT]|FILE|-')
+    group = entrypoint.add_argument_group('targets')
+    group.add_argument('--json-input', action=BooleanOptionalAction, default=not os.isatty(sys.stdin.fileno()), help='expect JSONL input, default: if pipeline')
+    group.add_argument('--json-output', action=BooleanOptionalAction, default=not os.isatty(sys.stdout.fileno()), help='produce JSONL output, default: if pipeline')
+    group.add_argument('-t', '--targets', nargs='*', metavar='HOST[:PORT]')
 
     opts = entrypoint.parse_args()
 
@@ -154,14 +154,13 @@ def main() -> None:
             entrypoint.print_help()
             return
 
-    if opts.json_input and (opts.password or opts.hashes or opts.aes_key or opts.kerberos):
-        print('mssql-spider: error: arguments from the authentication group are ignored because --json-input was specified')
-        entrypoint.print_usage()
-        exit(1)
-    if  not opts.json_input and not opts.password and not opts.hashes and not opts.aes_key and not opts.kerberos:
+    opts.credentials = bool(opts.password or opts.hashes or opts.aes_key or opts.kerberos)
+
+    if not opts.json_input and not opts.credentials:
         print('mssql-spider: error: no authentication material')
         entrypoint.print_usage()
         exit(1)
+
     if opts.aes_key:
         opts.kerberos = True
     if opts.domain:
@@ -172,7 +171,7 @@ def main() -> None:
 
     try:
         with ThreadPoolExecutor(max_workers=opts.threads) as pool:
-            for _ in pool.map(functools.partial(process, opts=opts), util.load_targets(opts.targets, model=Connection if opts.json_input else None)):
+            for _ in pool.map(functools.partial(process, opts=opts), util.load_targets(opts.targets, opts.json_input)):
                 pass
     except KeyboardInterrupt:
         exit(1)
@@ -244,13 +243,32 @@ def format_result(data: dict[Any, Any]) -> Text:
         text += ' '
     return text[:-1]
 
+
 MINIFIED_JSON = dict(
     separators=(',', ':'),
     sort_keys=False,
 )
 
+
 def log_status_json(client: Client, module: BaseModule|None, status: str) -> None:
-    STDOUT.print(json.dumps(dict(host=client.connection.host, port=client.connection.port, instance=client.instance, login=client.login, user=client.username, pwned=client.pwned, module=module.__class__.__name__ if module else 'Spider', status=status, error=dict(type=client.error.__class__.__name__, message=str(client.error)) if isinstance(client, BrokenClient) else None), **MINIFIED_JSON))
+    STDOUT.print(
+        json.dumps(
+            dict(
+                host=client.connection.host,
+                port=client.connection.port,
+                instance=client.instance,
+                login=client.login,
+                user=client.username,
+                pwned=client.pwned,
+                module=module.__class__.__name__ if module else 'Spider',
+                status=status,
+                error=dict(
+                    type=client.error.__class__.__name__,
+                    message=str(client.error)) if isinstance(client, BrokenClient) else None,
+            ),
+            **MINIFIED_JSON,  # type: ignore
+        )
+    )
 
 
 def log_status_ascii(client: Client, module: BaseModule|None, status: str) -> None:
@@ -264,7 +282,21 @@ def log_status_ascii(client: Client, module: BaseModule|None, status: str) -> No
 
 
 def log_result_json(client: Client, module: BaseModule|None, result: dict[str, Any]) -> None:
-    STDOUT.print(json.dumps(dict(host=client.connection.host, port=client.connection.port, instance=client.instance, login=client.login, user=client.username, pwned=client.pwned, module=module.__class__.__name__ if module else 'Spider', result=result), **MINIFIED_JSON))
+    STDOUT.print(
+        json.dumps(
+            dict(
+                host=client.connection.host,
+                port=client.connection.port,
+                instance=client.instance,
+                login=client.login,
+                user=client.username,
+                pwned=client.pwned,
+                module=module.__class__.__name__ if module else 'Spider',
+                result=result,
+            ),
+            **MINIFIED_JSON,  # type: ignore
+        )
+    )
 
 
 def log_result_ascii(client: Client, module: BaseModule|None, result: dict[str, Any]) -> None:
@@ -273,7 +305,18 @@ def log_result_ascii(client: Client, module: BaseModule|None, result: dict[str, 
 
 
 def log_error_json(client: Client, error: Exception, **kwargs: str) -> None:
-    STDOUT.print(json.dumps(dict(host=client.connection.host, port=client.connection.port, module='Connection', error=dict(type=error.__class__.__name__, message=str(error)), **kwargs), **MINIFIED_JSON))
+    STDOUT.print(
+        json.dumps(
+            dict(
+                host=client.connection.host,
+                port=client.connection.port,
+                module='Connection',
+                error=dict(type=error.__class__.__name__, message=str(error)),
+                **kwargs,
+            ),
+            **MINIFIED_JSON,  # type: ignore
+        )
+    )
 
 
 def log_error_ascii(client: Client, error: Exception, **kwargs: str) -> None:
@@ -285,25 +328,25 @@ def log_error_ascii(client: Client, error: Exception, **kwargs: str) -> None:
     )
 
 
-def process(target: DatabaseServicePrincipal|Connection, opts: Namespace) -> None:
+def process(target: Connection, opts: Namespace) -> None:
     log_status = log_status_json if opts.json_output else log_status_ascii
     log_result = log_result_json if opts.json_output else log_result_ascii
     log_error = log_error_json if opts.json_output else log_error_ascii
 
-    if isinstance(target, DatabaseServicePrincipal):
+    if isinstance(target, Connection):
         target = Connection(
             host=target.host,
             port=target.port,
             instance=None,
-            domain=opts.domain,
-            username=opts.user,
-            password=opts.password,
-            hashes=opts.hashes,
-            aes_key=opts.aes_key,
-            windows_auth=opts.windows_auth,
-            kerberos=opts.kerberos,
-            kdc_host=opts.kdc,
-            database=opts.database,
+            domain=opts.domain if opts.credentials else target.domain,
+            username=opts.user if opts.credentials else target.username,
+            password=opts.password if opts.credentials else target.password,
+            hashes=opts.hashes if opts.credentials else target.hashes,
+            aes_key=opts.aes_key if opts.credentials else target.aes_key,
+            windows_auth=opts.windows_auth if opts.credentials else target.windows_auth,
+            kerberos=opts.kerberos if opts.credentials else target.kerberos,
+            kdc_host=opts.kdc if opts.credentials else target.kdc_host,
+            database=opts.database if opts.credentials else target.database,
             timeout=opts.timeout,
         )
     client = Client(target)

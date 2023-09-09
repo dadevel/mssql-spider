@@ -10,6 +10,28 @@ import pydantic
 
 from mssqlmap.model import BaseModel
 
+# source: https://sqlserverbuilds.blogspot.com/
+# TODO: improve granularity to SP/CU level plus unsupported/outdated/patched status
+VERSION_TABLE = {
+    '16.': '2022',
+    '15.': '2019',
+    '14.': '2017',
+    '13.': '2016',
+    '12.': '2014',
+    '11.': '2012',
+    '10.50.': '2008 R2',
+    '10.0.': '2008',
+    '9.': '2005',
+    '8.': '2000',
+}
+
+
+def lookup_buildnumber(build: str) -> str:
+    for key in VERSION_TABLE:
+        if build.startswith(key):
+            return f'SQL Server {VERSION_TABLE[key]}'
+    return f'Unknown {build}'
+
 
 class Connection(BaseModel):
     host: str
@@ -26,10 +48,28 @@ class Connection(BaseModel):
     kdc_host: str|None = None
     database: str|None = None
     timeout: int = 10
+    loginname: str|None = None
+    pwned: bool = False
+    computername: str|None = None
+    build: str = ''
+    version: str = ''
+    clustered: bool = False
     wrapped: MSSQL = pydantic.Field(default_factory=lambda: MSSQL(None), exclude=True)
 
     class Config:
         arbitrary_types_allowed = True
+
+    @classmethod
+    def from_ping(cls, host: str, servername: str, instancename: str, isclustered: str, version: str, tcp: str = '', np: str = '') -> Connection:
+        return cls(
+            host=host,
+            port=int(tcp) if tcp else 1433,
+            instance=instancename.upper(),
+            computername=servername.upper(),
+            build=version,
+            version=lookup_buildnumber(version),
+            clustered=isclustered.lower() == 'yes',
+        )
 
     def __enter__(self) -> Connection:
         self.connect()
