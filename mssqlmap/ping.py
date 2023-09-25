@@ -72,7 +72,7 @@ def udp_ping(host: str, timeout: int) -> Generator[Connection, None, None]:
 
     if bindata:
         for attrset in udp_parse(bindata):
-            yield Connection.from_ping(**attrset)
+            yield Connection.from_ping(host=host, **attrset)
 
 
 def udp_parse(bindata: bytes) -> Generator[dict[str, str], None, None]:

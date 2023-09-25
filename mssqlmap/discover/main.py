@@ -6,6 +6,7 @@ import os
 import sys
 
 from mssqlmap import default
+from mssqlmap import util
 
 
 def main() -> None:
@@ -13,7 +14,7 @@ def main() -> None:
     entrypoint.add_argument('--debug', action=BooleanOptionalAction, default=False)
 
     parsers = entrypoint.add_subparsers(dest='command', required=True)
-    parsers.add_parser(
+    parser = parsers.add_parser(
         'bloodhound',
         epilog=(
             'env vars:\n'
@@ -22,6 +23,7 @@ def main() -> None:
             '  NEO4J_URL\n'
         ),
     )
+    parser.add_argument('--json-output', action=BooleanOptionalAction, default=not os.isatty(sys.stdout.fileno()), help='produce JSONL output, default: if pipeline')
 
     parser = parsers.add_parser('ldap')
     auth = parser.add_argument_group('auth')
@@ -44,7 +46,10 @@ def main() -> None:
             neo4j_password = os.environ.get('NEO4J_PASSWORD') or 'neo4j'
             neo4j_url = os.environ.get('NEO4J_URL') or 'http://localhost:7474'
             for spn in bloodhound.get_spns(neo4j_url, neo4j_username, neo4j_password):
-                print(f'{spn.host}:{spn.port}', file=sys.stdout)
+                if opts.json_output:
+                    util.log(**spn.model_dump(exclude_defaults=True), stdout=True)
+                else:
+                    print(f'{spn.host}:{spn.port}', file=sys.stdout)
         case 'ldap':
             raise NotImplementedError()
 
