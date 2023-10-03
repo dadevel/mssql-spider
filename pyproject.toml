@@ -17,7 +17,7 @@ python = "^3.10"
 impacket = {git = "https://github.com/theporgs/impacket.git"}
 pydantic = "^2.4.2"
 requests = "^2.31.0"
-rich = "^13.5.3"
+rich = "^13.6.0"
 
 [build-system]
 requires = ["poetry-core"]
