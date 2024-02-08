@@ -16,7 +16,7 @@ from rich.text import Text
 from mssqlmap.client import BaseModule, BrokenClient, Client
 from mssqlmap.connection import Connection, SQLErrorException
 from mssqlmap.modules.clrexec import ClrExecutor
-from mssqlmap.modules.coerce import DirTreeCoercer, FileExistCoercer, OpenRowSetCoercer
+from mssqlmap.modules.coerce import DirTreeCoercer, FileExistCoercer, OpenRowSetCoercer, SubdirsCoercer
 from mssqlmap.modules.dump import HashDumper, JobDumper, AutoLogonDumper
 from mssqlmap.modules.enum import DatabaseEnumerator, LoginEnumerator, UserEnumerator
 from mssqlmap.modules.exec import CmdShellExecutor, OleExecutor, JobScheduler, JobDeleter, JobExecutor
@@ -54,6 +54,7 @@ VISITOR_MODULE_TABLE = dict(
     coerce_dirtree=DirTreeCoercer,
     coerce_fileexist=FileExistCoercer,
     coerce_openrowset=OpenRowSetCoercer,
+    coerce_subdirs=SubdirsCoercer,
     file_read=FileReader,
     file_write=FileWrite,
     exec_cmdshell=CmdShellExecutor,
@@ -111,6 +112,7 @@ def main() -> None:
     coercion = entrypoint.add_argument_group('coercion')
     coercion.add_argument('-c', '--coerce-dirtree', dest='coerce_dirtree', action='append', metavar='UNCPATH', help='coerce NTLM trough xp_dirtree(), unprivileged, repeatable')
     coercion.add_argument('--coerce-fileexist', action='append', metavar='UNCPATH', help='coerce NTLM trough xp_fileexist(), unprivileged, repeatable')
+    coercion.add_argument('--coerce-subdirs', action='append', metavar='UNCPATH', help='coerce NTLM trough xp_subdirs(), unprivileged, repeatable')
     coercion.add_argument('--coerce-openrowset', action='append', metavar='UNCPATH', help='coerce NTLM trough openrowset(), privileged, repeatable')
 
     fs = entrypoint.add_argument_group('filesystem')
