@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import Any, Generator, TypedDict
+import copy
 
 import logging
 
-from mssqlmap.connection import Connection
+from mssqlmap.connection import Connection, SQLErrorException
 
 
 class BaseModule:
@@ -37,6 +38,10 @@ class DatabaseInfo(TypedDict):
     trusted: bool
     encrypted: bool
     accessible: bool
+
+
+class UnexpectedResult(SQLErrorException):
+    pass
 
 
 class Client:
@@ -131,9 +136,9 @@ class Client:
     def query(self, statement: str, decode: bool = True, ignore_errors: bool = False) -> list[dict[str, Any]]:
         statement = statement.strip(' ;')
         logging.debug(f'{self.connection.host}:{self.connection.port}:sql:query:{statement}')
-        # sets wrapped._connection.replies and returns results
-        rows = self.connection.wrapped.sql_query(statement)
+        rows = self.connection.wrapped.sql_query(statement, wait=True)  # sets wrapped._connection.replies and returns results
         assert isinstance(rows, list)
+        rows = copy.deepcopy(rows)
         if decode:
             rows = [
                 {
@@ -153,7 +158,8 @@ class Client:
 
     def query_single(self, statement: str, decode: bool = True, ignore_errors: bool = False) -> dict[str, Any]:
         rows = self.query(statement, decode=decode, ignore_errors=ignore_errors)
-        assert len(rows) == 1
+        if len(rows) != 1:
+            raise UnexpectedResult(f'expected single row, but got {len(rows)} instead')
         return rows[0]
 
     def query_database(self, database: str, statement: str, decode: bool = True, ignore_errors: bool = False) -> list[dict[str, Any]]:
@@ -192,9 +198,8 @@ class Client:
                         raise RecursionError('maximum recursion depth exceeded')
                     yield from client.spider(modules, max_depth, depth + 1)
 
-    def test(self) -> bool:
+    def test(self) -> None:
         self.query_single('SELECT 1')
-        return True
 
     def configure(self, option: str, enabled: bool) -> None:
         value = 1 if enabled else 0

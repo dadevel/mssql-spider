@@ -55,6 +55,10 @@ class BrokenLinkedInstance(BrokenClient):
         return f'{self.parent.path if self.parent else ""}{LinkedRpcInstance.SIGN}{super().path}'
 
 
+class UnsupportedLinkedInstance(BrokenLinkedInstance):
+    pass
+
+
 class InstanceInfo(TypedDict):
     name: str
     product: str
@@ -66,9 +70,21 @@ class InstanceInfo(TypedDict):
     remote_login: str|None
 
 
+class UnsupportedInstance(Exception):
+    def __init__(self, info: InstanceInfo) -> None:
+        self.info = info
+
+    def __str__(self) -> str:
+        return f'unsupported provider {self.info["provider"]} for {self.info["product"] or "NULL"} at {self.info["datasource"]}'
+
+
 class LinkSpider(SpiderModule):
     def spider(self, client: Client) -> Generator[Client, None, None]:
         for name, info in self.enum_links(client).items():
+            if info['provider'] != 'SQLNCLI':
+                yield UnsupportedLinkedInstance(client, UnsupportedInstance(info), hostname=name, instance=info['name'])
+                continue
+
             child = LinkedRpcInstance(name, not info['rpc_enabled'], client, None, client.seen)
             try:
                 if not info['rpc_enabled']:
