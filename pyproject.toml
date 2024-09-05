@@ -15,7 +15,7 @@ mssql-spray = "mssqlmap.spray:main"
 [tool.poetry.dependencies]
 python = "^3.10"
 impacket = {git = "https://github.com/theporgs/impacket.git"}
-pydantic = "^2.8.2"
+pydantic = "^2.9.0"
 requests = "^2.32.3"
 rich = "^13.8.0"
 
