@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mssql-spider"
-version = "0.6.3"
+version = "0.6.4"
 description = ""
 authors = ["dadevel <dadevel@disroot.org>"]
 license = "MIT"

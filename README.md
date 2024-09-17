@@ -71,7 +71,7 @@ mssql-spider -u sa -p 'passw0rd' -t db01.corp.local -x 'whoami /priv' | jq -r 's
 As local database user.
 
 ~~~ bash
-mssql-spider -u jdoe -p 'passw0rd' -t db01.corp.local
+mssql-spider -u sa -p 'passw0rd' -t db01.corp.local
 ~~~
 
 As local windows user.
