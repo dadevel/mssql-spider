@@ -116,7 +116,7 @@ class Client:
         roles = self.roles()
         self._userinfo: UserInfo = {
             'computer': row['computer'].lower(),
-            'instance': row['instance'].lower(),
+            'instance': row['instance'].lower() if row['instance'] else '',
             'login': row['login'].lower(),
             'user': row['user'].lower(),
             'roles': list(roles),
