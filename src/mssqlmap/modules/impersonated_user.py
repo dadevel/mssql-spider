@@ -1,5 +1,7 @@
 from typing import Any, Generator, TypedDict
 
+from impacket.tds import TDS_ERROR_TOKEN
+
 from mssqlmap.client import BrokenClient, Client, SpiderModule
 from mssqlmap.connection import SQLErrorException
 
@@ -57,6 +59,9 @@ class ImpersonationSpider(SpiderModule):
                 child.test()
                 yield child
             except SQLErrorException as e:
+                # filter out users where failed impersonation is expected
+                if row['grantor'] in ('MS_DataCollectorInternalUser'):
+                    continue
                 attrs = {row['mode']: row['grantor']}
                 yield BrokenImpersonatedUser(client, e, **attrs)
 

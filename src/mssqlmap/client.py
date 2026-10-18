@@ -80,7 +80,10 @@ class Client:
     @property
     def id(self) -> str:
         # multiple logins that map to the same user are not always equal, for example the login matters for the login mapping of linked instances
-        return f'{self.login}:{self.username}@{self.hostname}:{self.instance}'
+        if self.instance:
+            return f'{self.login}:{self.username}@{self.hostname}:{self.instance}'
+        else:
+            return f'{self.login}:{self.username}@{self.hostname}'
 
     @property
     def path(self) -> str:
@@ -100,7 +103,8 @@ class Client:
 
     @property
     def instance(self) -> str:
-        return self.whoami()['instance']
+        value = self.whoami()['instance']
+        return value if value and value.lower() != 'null' else ''
 
     @property
     def pwned(self) -> bool:
@@ -186,7 +190,9 @@ class Client:
 
         for module in modules:
             for client in module.spider(self):
-                if isinstance(client, BrokenClient):
+                if isinstance(client, FailedClient):
+                    yield client, module, 'failed'
+                elif isinstance(client, BrokenClient):
                     yield client, module, 'denied'
                 elif client.id in self.seen:
                     yield client, module, 'repeated'
@@ -281,3 +287,7 @@ class BrokenClient(Client):
 
     def query(self, *args, **kwargs) -> Any:
         raise RuntimeError('can not query broken client')
+
+
+class FailedClient(BrokenClient):
+    pass

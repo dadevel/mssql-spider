@@ -1,7 +1,9 @@
 from typing import Any, Generator, TypedDict
 import logging
 
-from mssqlmap.client import BrokenClient, Client, SpiderModule
+from impacket.tds import TDS_ERROR_TOKEN
+
+from mssqlmap.client import BrokenClient, FailedClient, Client, SpiderModule
 from mssqlmap.connection import SQLErrorException
 
 
@@ -55,8 +57,10 @@ class BrokenLinkedInstance(BrokenClient):
         return f'{self.parent.path if self.parent else ""}{LinkedRpcInstance.SIGN}{super().path}'
 
 
-class UnsupportedLinkedInstance(BrokenLinkedInstance):
-    pass
+class UnsupportedLinkedInstance(FailedClient):
+    @property
+    def path(self) -> str:
+        return f'{self.parent.path if self.parent else ""}{LinkedRpcInstance.SIGN}{super().path}'
 
 
 class InstanceInfo(TypedDict):
@@ -75,13 +79,13 @@ class UnsupportedInstance(Exception):
         self.info = info
 
     def __str__(self) -> str:
-        return f'unsupported provider {self.info["provider"]} for {self.info["product"] or "NULL"} at {self.info["datasource"]}'
+        return f'unsupported provider {self.info["provider"]} at {self.info["datasource"]}, manual investigation required'
 
 
 class LinkSpider(SpiderModule):
     def spider(self, client: Client) -> Generator[Client, None, None]:
         for name, info in self.enum_links(client).items():
-            if info['provider'] != 'SQLNCLI':
+            if info['provider'] not in ('SQLNCLI', 'MSOLEDBSQL'):
                 yield UnsupportedLinkedInstance(client, UnsupportedInstance(info), hostname=name, instance=info['name'])
                 continue
 

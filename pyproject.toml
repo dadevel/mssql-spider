@@ -1,24 +1,25 @@
-[tool.poetry]
-name = "mssql-spider"
+[project]
+name = "mssqlmap"
 version = "0.6.7"
 description = ""
-authors = ["dadevel <dadevel@disroot.org>"]
+authors = [{name = "dadevel",email = "dadevel@disroot.org"}]
 license = "MIT"
+readme = "README.md"
+requires-python = ">=3.11"
 packages = [{include = "mssqlmap"}]
+dependencies = [
+    "impacket>=0.13.1",
+    "pydantic>=2.14.1",
+    "requests>=2.34.2",
+    "rich>=15.0.0",
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 mssql-discover = "mssqlmap.discover.main:main"
 mssql-ping = "mssqlmap.ping:main"
 mssql-spider = "mssqlmap.spider:main"
 mssql-spray = "mssqlmap.spray:main"
 
-[tool.poetry.dependencies]
-python = "^3.10"
-impacket = {git = "https://github.com/theporgs/impacket.git"}
-pydantic = "^2.12.5"
-requests = "^2.33.1"
-rich = ">=14.3.3,<16.0.0"
-
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.11.18,<0.13"]
+build-backend = "uv_build"
