@@ -21,5 +21,5 @@ mssql-spider = "mssqlmap.spider:main"
 mssql-spray = "mssqlmap.spray:main"
 
 [build-system]
-requires = ["uv_build>=0.11.18,<0.13"]
+requires = ["uv_build>=0.11.18,<0.14"]
 build-backend = "uv_build"
